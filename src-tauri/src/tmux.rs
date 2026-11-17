@@ -16,7 +16,8 @@ set -g escape-time 0
 set -g default-terminal "tmux-256color"
 set -as terminal-features ",xterm-256color:RGB"
 set -g set-clipboard on
-set -g allow-passthrough on
+set -g allow-passthrough off
+set -gq get-clipboard off
 set -g focus-events on
 set -g destroy-unattached off
 set -g detach-on-destroy off
@@ -103,10 +104,20 @@ pub struct Session {
     pub attached: String,
 }
 
-const SEP: &str = "\u{1f}";
+/// A per-call token neither a path nor a command can guess: paths and
+/// process names may contain newlines and \x1f, so rows and fields are split
+/// on separators that carry it.
+fn nonce() -> String {
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
+    format!("{:016x}", h.finish())
+}
 
 pub fn list() -> Vec<Session> {
-    let fmt = [
+    let tok = nonce();
+    let sep = format!("\u{1f}{tok}\u{1f}");
+    let fields = [
         "#{session_name}",
         "#{@toranj_project}",
         "#{pane_current_path}",
@@ -117,16 +128,22 @@ pub fn list() -> Vec<Session> {
         "#{@toranj_bell}",
         "#{@toranj_attached}",
     ]
-    .join(SEP);
+    .join(&sep);
+    let fmt = format!("{tok}{sep}{fields}");
     // Errors here mostly mean "no server running yet", which is an empty list.
     let Ok(out) = run(&["list-panes", "-a", "-F", &fmt]) else {
         return vec![];
     };
+    let row_start = format!("{tok}{sep}");
     let mut seen = std::collections::HashSet::new();
-    out.lines()
+    out.strip_suffix('\n')
+        .unwrap_or(&out)
+        .split(&format!("\n{row_start}"))
+        .map(|r| r.strip_prefix(&row_start).unwrap_or(r))
         .filter_map(|l| {
-            let f: Vec<&str> = l.split(SEP).collect();
-            if f.len() < 9 || !seen.insert(f[0].to_string()) {
+            let f: Vec<&str> = l.split(&sep).collect();
+            // Only sessions with Toranj's own name format and a real pid.
+            if f.len() != 9 || !crate::spool::valid_tab(f[0]) || f[3].parse::<u32>().is_err() || !seen.insert(f[0].to_string()) {
                 return None;
             }
             Some(Session {
@@ -186,15 +203,17 @@ pub fn create(project: &str, cwd: &str, command: &str) -> Result<String, String>
     if !Path::new(cwd).is_dir() {
         return Err("folder does not exist".into());
     }
+    // Kept short enough to stay a valid tab name with a "-N" suffix.
+    let cut = |s: String, n: usize| s.chars().take(n).collect::<String>();
     let base = format!(
         "{}__{}",
-        slug(
+        cut(slug(
             project
                 .rsplit('/')
                 .find(|p| !p.is_empty())
                 .unwrap_or(project)
-        ),
-        slug(command.split_whitespace().next().unwrap_or("shell"))
+        ), 60),
+        cut(slug(command.split_whitespace().next().unwrap_or("shell")), 40)
     );
     let existing: std::collections::HashSet<String> = list().into_iter().map(|s| s.name).collect();
     let mut name = base.clone();
@@ -204,13 +223,15 @@ pub fn create(project: &str, cwd: &str, command: &str) -> Result<String, String>
         i += 1;
     }
     let env = format!("TORANJ_TAB={name}");
+    // tmux expands #{…} and #(…) in -c: a folder name must stay a name.
+    let start_dir = escape_format(cwd);
     run(&[
         "new-session",
         "-d",
         "-s",
         &name,
         "-c",
-        cwd,
+        &start_dir,
         "-x",
         "160",
         "-y",
@@ -218,12 +239,35 @@ pub fn create(project: &str, cwd: &str, command: &str) -> Result<String, String>
         "-e",
         &env,
     ])?;
-    run(&["set-option", "-t", &name, "@toranj_project", project])?;
+    run(&["set-option", "-t", &exact(&name), "@toranj_project", project])?;
     if !command.trim().is_empty() {
-        run(&["send-keys", "-t", &name, "-l", command])?;
-        run(&["send-keys", "-t", &name, "Enter"])?;
+        run(&["send-keys", "-t", &exact(&name), "-l", command])?;
+        run(&["send-keys", "-t", &exact(&name), "Enter"])?;
     }
     Ok(name)
+}
+
+/// `s` with tmux formats disarmed: '#' doubled, except in a run of '#'
+/// followed by '[' (style markup), which tmux already leaves as it is.
+fn escape_format(s: &str) -> String {
+    let b: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len() + 8);
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == '#' {
+            let start = i;
+            while i < b.len() && b[i] == '#' {
+                i += 1;
+            }
+            let run = i - start;
+            let literal = b.get(i) == Some(&'[');
+            out.extend(std::iter::repeat_n('#', if literal { run } else { run * 2 }));
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    out
 }
 
 /// Exact tmux target for a session. A bare name falls back to prefix and
@@ -255,6 +299,18 @@ pub fn clear_bell(name: &str) {
         "@toranj_bell",
         "0",
     ]);
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::escape_format;
+    #[test]
+    fn disarms_formats_but_keeps_style_runs() {
+        assert_eq!(escape_format("/a/#{x}/#(y)"), "/a/##{x}/##(y)");
+        assert_eq!(escape_format("p#[fg=red]q"), "p#[fg=red]q");
+        assert_eq!(escape_format("h##k#"), "h####k##");
+        assert_eq!(escape_format("plain"), "plain");
+    }
 }
 
 #[cfg(test)]

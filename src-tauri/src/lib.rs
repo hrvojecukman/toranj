@@ -97,16 +97,22 @@ pub(crate) fn log_line(msg: &str) {
     if std::fs::metadata(&path).is_ok_and(|m| m.len() > 1_000_000) {
         let _ = std::fs::rename(&path, dir.join("ui.log.1"));
     }
-    if let Ok(mut f) = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-    {
+    let mut opts = std::fs::OpenOptions::new();
+    opts.create(true).append(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    if let Ok(mut f) = opts.open(&path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let line: String = msg.chars().take(2000).filter(|c| *c != '\n').collect();
+        // No control characters: the log is read with cat.
+        let line: String = msg.chars().take(2000).filter(|c| !c.is_control()).collect();
         let _ = writeln!(f, "{ts} {line}");
     }
 }
@@ -221,7 +227,15 @@ fn set_status_labels(labels: serde_json::Value) -> Result<(), String> {
     let dir = path.parent().ok_or("invalid path")?;
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let tmp = dir.join(format!(".labels.{}.json", std::process::id()));
-    std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
+    {
+        use std::io::Write;
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+        let mut f = opts.open(&tmp).map_err(|e| e.to_string())?;
+        f.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    }
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
 }
 
@@ -343,7 +357,6 @@ fn tmux_available() -> bool {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_opener::init())
         .manage(pty::Bridge::default())
         .setup(|app| {
             watch_spool(app.handle().clone());

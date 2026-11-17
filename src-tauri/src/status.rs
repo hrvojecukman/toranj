@@ -534,6 +534,10 @@ pub(crate) fn safe_id(id: &str) -> bool {
 
 /// EPERM means the process exists but belongs to someone else: still alive.
 fn alive(pid: u32) -> bool {
+    // kill(0 or a negative pid) would address process groups.
+    if pid == 0 || pid > i32::MAX as u32 {
+        return false;
+    }
     let ok = unsafe { libc::kill(pid as libc::pid_t, 0) } == 0;
     ok || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
@@ -795,6 +799,9 @@ pub fn move_external(session_id: &str, force: bool) -> Result<String, String> {
         return Err(
             "the session has no saved conversation (it has not received a message yet); close it manually".into(),
         );
+    }
+    if pid == 0 || pid > i32::MAX as u32 {
+        return Err("invalid process id".into());
     }
     if unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) } != 0 {
         return Err(format!(

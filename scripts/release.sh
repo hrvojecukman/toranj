@@ -25,6 +25,7 @@ command -v rustc >/dev/null 2>&1 || PATH="/opt/homebrew/opt/rustup/bin:$HOME/.ca
 arch="$(rustc -vV | sed -n 's/^host: \([^-]*\)-.*/\1/p')"
 echo "Building Toranj $version ($arch)…"
 
+npm ci                                     # exactly the locked dependencies
 sh scripts/build-hook.sh release
 npm run tauri build -- --bundles app,dmg  # signs the app and notarizes it
 

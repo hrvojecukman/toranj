@@ -98,7 +98,15 @@ fn normalize(p: &Path) -> PathBuf {
 }
 
 fn parse(file: &Path) -> Option<WorkspaceFile> {
-    let text = std::fs::read_to_string(file).ok()?;
+    // Only a regular file of sane size: a symlink to /dev/zero (or a huge
+    // file) in a cloned repo must not be read.
+    use std::io::Read;
+    let meta = std::fs::symlink_metadata(file).ok()?;
+    if !meta.is_file() || meta.len() > 1_000_000 {
+        return None;
+    }
+    let mut text = String::new();
+    std::fs::File::open(file).ok()?.take(1_000_001).read_to_string(&mut text).ok()?;
     if text.len() > 1_000_000 {
         return None;
     }

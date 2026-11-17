@@ -7,7 +7,6 @@
   ],
   "permissions": [
     "core:default",
-    "opener:default",
     "core:window:allow-set-badge-count",
     "core:window:allow-set-focus",
     "notification:allow-is-permission-granted",

@@ -37,10 +37,19 @@ const ICON_DIRS: &[&str] = &["assets/icon", "assets/icons"];
 
 const MAX_BYTES: u64 = 1_500_000;
 
+/// The file is inside `dir` for real: a symlink in a cloned repo must not
+/// turn some other file (a key, say) into an "icon" shown in the webview.
+fn inside(p: &Path, dir: &Path) -> bool {
+    match (std::fs::canonicalize(p), std::fs::canonicalize(dir)) {
+        (Ok(p), Ok(d)) => p.starts_with(d),
+        _ => false,
+    }
+}
+
 fn find_in(dir: &Path) -> Option<PathBuf> {
     for c in CANDIDATES {
         let p = dir.join(c);
-        if p.metadata().is_ok_and(|m| m.is_file() && m.len() <= MAX_BYTES) {
+        if p.metadata().is_ok_and(|m| m.is_file() && m.len() <= MAX_BYTES) && inside(&p, dir) {
             return Some(p);
         }
     }
@@ -50,7 +59,7 @@ fn find_in(dir: &Path) -> Option<PathBuf> {
             .flatten()
             .map(|e| e.path())
             .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("png")))
-            .filter(|p| p.metadata().is_ok_and(|m| m.is_file() && m.len() <= MAX_BYTES))
+            .filter(|p| p.metadata().is_ok_and(|m| m.is_file() && m.len() <= MAX_BYTES) && inside(p, dir))
             .collect();
         pngs.sort();
         if let Some(p) = pngs.into_iter().next() {

@@ -37,7 +37,8 @@ impl Bridge {
             .map_err(|e| e.to_string())?;
 
         let mut cmd = CommandBuilder::new(crate::tmux::bin());
-        cmd.args(["-L", crate::tmux::SOCKET, "attach-session", "-t", session]);
+        // `=` makes the target exact: "x" must not attach "x-2".
+        cmd.args(["-L", crate::tmux::SOCKET, "attach-session", "-t", &format!("={session}")]);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         cmd.env(
