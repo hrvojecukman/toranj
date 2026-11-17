@@ -30,6 +30,10 @@ cargo test --workspace
 
 The UI can be rendered without the Rust backend for screenshots: start `npx vite` and open `http://localhost:1420/?mock&demo` (see `src/dev/mock.ts` for the other parameters).
 
+## Releasing (maintainer)
+
+`scripts/release.sh` builds a signed and notarized app and dmg; `scripts/release.sh --publish` also creates the GitHub release for the version in `src-tauri/tauri.conf.json`. It needs a Developer ID certificate in the keychain and an App Store Connect API key, configured outside the repo (see the top of the script).
+
 ## Style
 
 - UI text is in English and short. Say what happened and what to do next.

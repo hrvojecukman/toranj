@@ -45,13 +45,9 @@ Toranj puts those terminals in one window instead. They run in a private tmux se
 
 ## Install
 
-Download the latest `Toranj.app` from [GitHub Releases](https://github.com/hrvojecukman/toranj/releases) and move it to `/Applications`.
+Download `Toranj_<version>_aarch64.dmg` from [GitHub Releases](https://github.com/hrvojecukman/toranj/releases), open it and drag Toranj to Applications. The app is signed with a Developer ID and notarized by Apple, so it opens like any other Mac app. Builds are for Apple silicon.
 
-The builds are not yet signed with an Apple Developer ID, so macOS blocks the app the first time you open it. Either right-click the app and choose **Open**, or run:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/Toranj.app
-```
+The first time Toranj sends a notification, macOS asks whether to allow it.
 
 ## Build from source
 
