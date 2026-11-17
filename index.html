@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Toranj</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <nav class="rail" aria-label="Projects and terminals">
+        <div class="rail-head">
+          <button class="brand" id="brand" title="Overview of all projects (⌘0)">Toranj</button>
+          <span class="rail-acts"><button class="pill wait" id="q-wait" hidden></button><button class="palbtn" id="pal-btn" title="Quick switch: terminals, projects, actions (⌘K)">⌘K</button><button class="palbtn" id="set-btn" title="Settings (⌘,)" aria-label="Settings">⚙</button></span>
+        </div>
+        <button class="sess ovrow" id="ov-row" title="Overview of all projects (⌘0)" hidden><i class="ov-ico" aria-hidden="true">▦</i><span class="n">Overview</span><kbd class="k">⌘0</kbd></button>
+        <div id="tabs"></div>
+        <div id="external"></div>
+        <div class="hooks" id="hooks" hidden>
+          <span id="hooks-text"></span>
+          <button class="link" id="hooks-btn"></button>
+        </div>
+        <button class="newbtn" id="new-btn">+ New terminal <kbd>⌘T</kbd></button>
+      </nav>
+      <section class="pane">
+        <header class="head" id="head" hidden>
+          <i class="st" id="h-st"></i>
+          <i class="pi" id="h-ico" aria-hidden="true"></i>
+          <span id="h-name"></span>
+          <span class="meta" id="h-meta"></span>
+          <div class="acts">
+            <div class="seg" id="layout" role="group" aria-label="Project terminal layout" hidden>
+              <button data-layout="single" title="Selected terminal only (⌘G)">Single</button>
+              <button data-layout="grid" title="All project terminals in a grid (⌘G)">Grid</button>
+              <button data-layout="cols" title="All project terminals side by side">Columns</button>
+              <button data-layout="rows" title="All project terminals stacked">Rows</button>
+            </div>
+            <button class="btn gitbtn" id="h-git" title="Project git status: changes, commits, branches and worktrees" hidden></button>
+            <button class="btn" id="open-editor" title="Open this folder in VS Code">VS Code</button>
+            <button class="btn danger" id="kill">Close</button>
+          </div>
+        </header>
+        <div class="grid" id="grid"></div>
+        <div class="pflash" id="pflash" aria-hidden="true" hidden><i class="pi"></i><b></b></div>
+        <div class="ov" id="overview" tabindex="-1" aria-label="Overview of all projects" hidden></div>
+        <aside class="wdock" id="wdock" aria-label="Terminals waiting for you" aria-live="polite" hidden></aside>
+        <footer class="res" id="res" aria-label="Memory usage" aria-expanded="false" hidden>
+          <div class="res-sum" id="res-sum" role="button" tabindex="0" aria-controls="res-panel"></div>
+          <div class="res-panel" id="res-panel" hidden>
+            <div class="res-head"><h3>Memory</h3><button class="link" id="res-close" aria-label="Close">✕</button></div>
+            <p class="err" id="res-err" hidden></p>
+            <div class="res-body" id="res-body"></div>
+          </div>
+        </footer>
+        <div class="empty" id="empty">
+          <h2>No terminal is open</h2>
+          <p>Open a terminal in a project and start an agent. Terminals keep running when you quit Toranj.</p>
+          <button class="btn primary" id="empty-new">+ New terminal</button>
+        </div>
+      </section>
+    </div>
+
+    <dialog id="new-dlg">
+      <form method="dialog" id="new-form">
+        <h3>New terminal</h3>
+        <label for="proj-filter">Project</label>
+        <input id="proj-filter" placeholder="Search projects…" autocomplete="off" />
+        <div class="proj-list" id="proj-list" role="listbox"></div>
+        <label for="cmd">Command</label>
+        <div class="cmds" id="cmds">
+          <button type="button" data-cmd="claude" class="chip on">claude</button>
+          <button type="button" data-cmd="codex" class="chip">codex</button>
+          <button type="button" data-cmd="gemini" class="chip">gemini</button>
+          <button type="button" data-cmd="" class="chip">shell</button>
+        </div>
+        <input id="cmd" value="claude" placeholder="e.g. npm run dev" />
+        <p class="err" id="new-err" hidden></p>
+        <div class="dlg-acts">
+          <button type="button" class="btn" id="new-cancel">Cancel</button>
+          <button type="submit" class="btn primary" id="new-ok">Open</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="pal-dlg" class="pal" aria-label="Quick switch">
+      <input id="pal-q" placeholder="Go to a terminal, project or action…" autocomplete="off" spellcheck="false" role="combobox" aria-controls="pal-list" aria-expanded="true" />
+      <div class="pal-list" id="pal-list" role="listbox"></div>
+      <div class="pal-foot"><span><kbd>↑↓</kbd> choose</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
+    </dialog>
+
+    <dialog id="set-dlg" class="set" aria-labelledby="set-title">
+      <form method="dialog">
+        <h3 id="set-title">Settings</h3>
+
+        <section class="set-sec">
+          <h4>Appearance</h4>
+          <div class="set-grid">
+            <span class="set-l">Font size <small>⌘+ / ⌘−</small></span>
+            <div class="set-row">
+              <button type="button" class="btn sq" id="set-font-dn" aria-label="Smaller">−</button>
+              <b id="set-font"></b>
+              <button type="button" class="btn sq" id="set-font-up" aria-label="Larger">+</button>
+              <button type="button" class="link" id="set-font-reset">Reset</button>
+            </div>
+            <span class="set-l">Theme</span>
+            <div class="seg" id="set-theme" role="group" aria-label="Theme">
+              <button type="button" data-theme="dark">Dark</button>
+              <button type="button" data-theme="light">Light</button>
+              <button type="button" data-theme="system">System</button>
+            </div>
+          </div>
+          <p class="set-note">Programs in the terminal pick their own colors. In Claude Code, match it with /theme.</p>
+        </section>
+
+        <section class="set-sec">
+          <h4>Sounds and notifications</h4>
+          <div class="set-grid">
+            <span class="set-l">Sound</span>
+            <div class="seg" id="set-sound" role="group" aria-label="Sound">
+              <button type="button" data-sound="on">On</button>
+              <button type="button" data-sound="off">Off</button>
+            </div>
+            <span class="set-l" id="set-done-lbl">Finished</span>
+            <div class="pick" id="set-done-sound" data-label="set-done-lbl"></div>
+            <span class="set-l" id="set-wait-lbl">Waiting for you</span>
+            <div class="pick" id="set-wait-sound" data-label="set-wait-lbl"></div>
+            <span></span>
+            <div><button type="button" class="link" id="set-test">Send a test notification</button></div>
+          </div>
+        </section>
+
+        <section class="set-sec">
+          <h4>Claude Code</h4>
+          <div class="set-switch">
+            <div>
+              <span class="set-l" id="set-sl-lbl">Project name under the input box</span>
+              <p class="set-note" id="set-sl-note"></p>
+            </div>
+            <button type="button" class="switch" id="set-sl" role="switch" aria-checked="false" aria-labelledby="set-sl-lbl" aria-describedby="set-sl-note"><i></i></button>
+          </div>
+        </section>
+
+        <div class="dlg-acts"><button value="ok" class="btn primary">Done</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="hooks-dlg">
+      <form method="dialog">
+        <h3>Precise statuses for Claude Code</h3>
+        <p class="dlg-p">Toranj will add hooks to <code id="hooks-settings"></code> that run <code id="hooks-bin"></code>. For each event it records only the event type and a short description (e.g. “Bash: git push”), never file contents. Your existing hooks stay, and a backup is made before any change.</p>
+        <details><summary>What exactly is added</summary><pre id="hooks-preview"></pre></details>
+        <p class="err" id="hooks-err" hidden></p>
+        <div class="dlg-acts">
+          <button value="no" class="btn">Cancel</button>
+          <button value="yes" class="btn primary" id="hooks-ok">Turn on</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="stop-dlg">
+      <form method="dialog">
+        <h3 id="stop-title">Close process?</h3>
+        <p class="dlg-p" id="stop-msg"></p>
+        <div class="dlg-acts">
+          <button value="no" class="btn">Cancel</button>
+          <button value="yes" class="btn danger" id="stop-ok">Close</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="move-dlg">
+      <form method="dialog">
+        <h3 id="move-title">Move to Toranj?</h3>
+        <p class="dlg-p" id="move-msg"></p>
+        <p class="err" id="move-err" hidden></p>
+        <div class="dlg-acts">
+          <button value="no" class="btn">Cancel</button>
+          <button value="yes" class="btn primary" id="move-ok">Move</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="git-dlg" class="wide" aria-labelledby="git-title">
+      <div class="git-head">
+        <h3 id="git-title">Git</h3>
+        <button class="btn" id="git-reload">Refresh</button>
+        <button class="link" id="git-close" aria-label="Close">✕</button>
+      </div>
+      <p class="err" id="git-err" hidden></p>
+      <div class="res-body git-body" id="git-body"></div>
+    </dialog>
+
+    <div class="ctx" id="ctx" role="menu" aria-label="Terminal" hidden></div>
+
+    <dialog id="ask-dlg">
+      <form method="dialog">
+        <h3 id="ask-title"></h3>
+        <input id="ask-input" autocomplete="off" spellcheck="false" />
+        <p class="dlg-p set-note" id="ask-note"></p>
+        <div class="dlg-acts">
+          <button type="button" class="btn" id="ask-cancel">Cancel</button>
+          <button value="yes" class="btn primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="err-dlg">
+      <form method="dialog">
+        <h3>Something went wrong</h3>
+        <p class="dlg-p" id="err-msg"></p>
+        <div class="dlg-acts"><button value="ok" class="btn">OK</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="kill-dlg">
+      <form method="dialog">
+        <h3>Close terminal?</h3>
+        <p id="kill-msg"></p>
+        <div class="dlg-acts">
+          <button value="no" class="btn">Cancel</button>
+          <button value="yes" class="btn danger" id="kill-ok">Close terminal</button>
+          <button value="stop" class="btn danger" id="kill-stop" hidden>Stop session</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

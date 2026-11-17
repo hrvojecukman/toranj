@@ -1,0 +1,34 @@
+name: Bug report
+description: Something in Toranj doesn't work as expected
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. Screenshots help.
+    validations:
+      required: true
+  - type: input
+    id: toranj
+    attributes:
+      label: Toranj version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: claude
+    attributes:
+      label: Claude Code version (`claude --version`)
+      description: Toranj reads parts of Claude Code that can change between versions, so this matters most.
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Relevant lines from ~/Library/Logs/Toranj/ui.log, if any.
+      render: text

@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build the hook sidecar
+        run: sh scripts/build-hook.sh debug
+      # Type-checks the frontend too; the app crate embeds dist/ when it compiles.
+      - name: Build the frontend
+        run: npm run build
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+      - name: Tests
+        run: cargo test --workspace

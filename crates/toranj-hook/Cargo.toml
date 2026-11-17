@@ -1,0 +1,11 @@
+[package]
+name = "toranj-hook"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/hrvojecukman/toranj"
+description = "Claude Code hook that records agent events for Toranj"
+
+[dependencies]
+toranj-spool = { path = "../toranj-spool" }
+serde_json = "1"

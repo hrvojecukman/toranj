@@ -1,0 +1,42 @@
+[package]
+name = "toranj"
+version = "0.1.0"
+description = "One window for all your coding agents"
+authors = ["Hrvoje Cukman"]
+license = "MIT"
+repository = "https://github.com/hrvojecukman/toranj"
+edition = "2024"
+default-run = "toranj"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "toranj_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+toranj-spool = { path = "../crates/toranj-spool" }
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+portable-pty = "0.9.0"
+dirs = "7.0.0"
+tauri-plugin-notification = "2"
+notify = "8"
+sysinfo = { version = "0.40.3", default-features = false, features = ["system"] }
+libc = "0.2.191"
+
+
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSDictionary", "NSBundle", "NSError", "NSArray"] }
+objc2-user-notifications = { version = "0.3", features = ["UNUserNotificationCenter", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationTrigger", "UNNotificationSettings", "block2"] }

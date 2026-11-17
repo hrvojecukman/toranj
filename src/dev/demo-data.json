@@ -1,0 +1,394 @@
+{
+ "projects": [
+  {
+   "name": "abacus",
+   "path": "/Users/you/Code/abacus"
+  },
+  {
+   "name": "acme-api",
+   "path": "/Users/you/Code/acme-api"
+  },
+  {
+   "name": "acme-web",
+   "path": "/Users/you/Code/acme-web"
+  },
+  {
+   "name": "dotfiles",
+   "path": "/Users/you/Code/dotfiles"
+  },
+  {
+   "name": "notes-app",
+   "path": "/Users/you/Code/notes-app"
+  },
+  {
+   "name": "portfolio",
+   "path": "/Users/you/Code/portfolio"
+  },
+  {
+   "name": "recipe-box",
+   "path": "/Users/you/Code/recipe-box"
+  },
+  {
+   "name": "weather-cli",
+   "path": "/Users/you/Code/weather-cli"
+  }
+ ],
+ "resources": {
+  "total": 34359738368,
+  "used": 23085449216,
+  "swap_total": 2147483648,
+  "swap_used": 429496729,
+  "groups": [
+   {
+    "name": "Docker/VM",
+    "bytes": 4939212390,
+    "count": 2,
+    "procs": [
+     {
+      "pid": 812,
+      "label": "Docker Desktop VM",
+      "cwd": "",
+      "bytes": 4402341478,
+      "count": 1,
+      "killable": false
+     },
+     {
+      "pid": 790,
+      "label": "Docker Desktop",
+      "cwd": "",
+      "bytes": 536870912,
+      "count": 1,
+      "killable": false
+     }
+    ]
+   },
+   {
+    "name": "AI agents",
+    "bytes": 3328599654,
+    "count": 9,
+    "procs": [
+     {
+      "pid": 40101,
+      "label": "claude",
+      "cwd": "~/Code/abacus",
+      "bytes": 545259520,
+      "count": 1,
+      "killable": true
+     },
+     {
+      "pid": 40188,
+      "label": "claude",
+      "cwd": "~/Code/acme-api",
+      "bytes": 639631360,
+      "count": 1,
+      "killable": true
+     },
+     {
+      "pid": 40203,
+      "label": "claude",
+      "cwd": "~/Code/notes-app",
+      "bytes": 450887680,
+      "count": 1,
+      "killable": true
+     },
+     {
+      "pid": 40377,
+      "label": "claude",
+      "cwd": "~/Code/acme-web",
+      "bytes": 408944640,
+      "count": 1,
+      "killable": true
+     },
+     {
+      "pid": 40412,
+      "label": "claude",
+      "cwd": "~/Code/weather-cli",
+      "bytes": 367001600,
+      "count": 1,
+      "killable": true
+     },
+     {
+      "pid": 40490,
+      "label": "claude",
+      "cwd": "~/Code/portfolio",
+      "bytes": 346030080,
+      "count": 1,
+      "killable": true
+     },
+     {
+      "pid": 40555,
+      "label": "codex",
+      "cwd": "~/Code/weather-cli",
+      "bytes": 188743680,
+      "count": 1,
+      "killable": true
+     },
+     {
+      "pid": 39001,
+      "label": "Claude daemon (background sessions)",
+      "cwd": "",
+      "bytes": 220200960,
+      "count": 2,
+      "killable": false
+     }
+    ]
+   },
+   {
+    "name": "Browsers",
+    "bytes": 2576980377,
+    "count": 21,
+    "procs": [
+     {
+      "pid": 1201,
+      "label": "Firefox",
+      "cwd": "",
+      "bytes": 1181116006,
+      "count": 9,
+      "killable": false
+     },
+     {
+      "pid": 1305,
+      "label": "Safari",
+      "cwd": "",
+      "bytes": 1395864371,
+      "count": 12,
+      "killable": false
+     }
+    ]
+   },
+   {
+    "name": "Language servers",
+    "bytes": 1288490188,
+    "count": 3,
+    "procs": [
+     {
+      "pid": 41001,
+      "label": "rust-analyzer",
+      "cwd": "~/Code/abacus",
+      "bytes": 817889280,
+      "count": 1,
+      "killable": true
+     },
+     {
+      "pid": 41022,
+      "label": "tsserver (TypeScript)",
+      "cwd": "~/Code/acme-web",
+      "bytes": 304087040,
+      "count": 1,
+      "killable": true
+     },
+     {
+      "pid": 41040,
+      "label": "gopls",
+      "cwd": "~/Code/weather-cli",
+      "bytes": 167772160,
+      "count": 1,
+      "killable": true
+     }
+    ]
+   }
+  ],
+  "others": [
+   {
+    "pid": 2001,
+    "label": "Music",
+    "cwd": "",
+    "bytes": 639631360,
+    "count": 2,
+    "killable": false
+   },
+   {
+    "pid": 2050,
+    "label": "node",
+    "cwd": "~/Code/acme-web",
+    "bytes": 440401920,
+    "count": 3,
+    "killable": false
+   },
+   {
+    "pid": 2101,
+    "label": "Finder",
+    "cwd": "",
+    "bytes": 356515840,
+    "count": 1,
+    "killable": false
+   }
+  ]
+ },
+ "screens": {
+  "abacus__claude": "\u001b[38;5;209m ▐▛███▜▌\u001b[0m   \u001b[1mClaude Code\u001b[0m \u001b[38;5;246mv2.4.1\u001b[0m\n\u001b[38;5;209m▝▜█████▛▘\u001b[0m  \u001b[38;5;246mOpus · Claude Max\u001b[0m\n\u001b[38;5;209m  ▘▘ ▝▝\u001b[0m    \u001b[38;5;246m~/Code/abacus\u001b[0m\n\n\u001b[38;5;246m\u001b[48;5;237m❯ \u001b[38;5;231madd a --csv flag to `abacus export` so invoices can be opened in Numbers\u001b[0m\n\n\u001b[38;5;231m⏺\u001b[0m I'll look at how the export command is built first.\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mRead\u001b[0m(src/commands/export.rs)\n  ⎿  Read 142 lines\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mRead\u001b[0m(src/model/invoice.rs)\n  ⎿  Read 88 lines\n\n\u001b[38;5;231m⏺\u001b[0m Export currently only writes JSON. I'll add a `Format` enum and a CSV writer\n  that quotes fields and writes amounts with two decimals.\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mUpdate\u001b[0m(src/commands/export.rs)\n  ⎿  Updated src/commands/export.rs with 31 additions and 4 removals\n     \u001b[38;5;246m  18\u001b[0m \u001b[48;2;90;32;36m-     let out = serde_json::to_string_pretty(&invoices)?;\u001b[0m\n     \u001b[38;5;246m  18\u001b[0m \u001b[48;2;28;68;40m+     let out = match args.format {\u001b[0m\n     \u001b[38;5;246m  19\u001b[0m \u001b[48;2;28;68;40m+         Format::Json => serde_json::to_string_pretty(&invoices)?,\u001b[0m\n     \u001b[38;5;246m  20\u001b[0m \u001b[48;2;28;68;40m+         Format::Csv => csv::write(&invoices)?,\u001b[0m\n     \u001b[38;5;246m  21\u001b[0m \u001b[48;2;28;68;40m+     };\u001b[0m\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mWrite\u001b[0m(src/csv.rs)\n  ⎿  Wrote 64 lines to src/csv.rs\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mBash\u001b[0m(cargo test export)\n  ⎿  running 9 tests\n     test export::csv_quotes_commas ... ok\n     test export::csv_two_decimals ... ok\n     \u001b[38;5;246m… +7 lines (ctrl+o to expand)\u001b[0m\n\n\u001b[38;5;209m✶\u001b[0m \u001b[38;5;209mWriting the README section…\u001b[0m \u001b[38;5;246m(1m 48s · ↓ 6.2k tokens · esc to interrupt)\u001b[0m\n\n\u001b[38;5;244m────────────────────────────────────────────────────────────\u001b[0m\n❯ \n\u001b[38;5;244m────────────────────────────────────────────────────────────\u001b[0m\n  \u001b[38;5;220m⏵⏵ accept edits on\u001b[38;5;246m (shift+tab to cycle)\u001b[0m\n",
+  "acme-api__claude": "\u001b[38;5;209m ▐▛███▜▌\u001b[0m   \u001b[1mClaude Code\u001b[0m \u001b[38;5;246mv2.4.1\u001b[0m\n\u001b[38;5;209m▝▜█████▛▘\u001b[0m  \u001b[38;5;246mOpus · Claude Max\u001b[0m\n\u001b[38;5;209m  ▘▘ ▝▝\u001b[0m    \u001b[38;5;246m~/Code/acme-api\u001b[0m\n\n\u001b[38;5;246m\u001b[48;5;237m❯ \u001b[38;5;231mfinish the contracts endpoint, run the tests and push the branch\u001b[0m\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mRead\u001b[0m(src/routes/contracts.ts)\n  ⎿  Read 96 lines\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mUpdate\u001b[0m(src/routes/contracts.ts)\n  ⎿  Updated src/routes/contracts.ts with 22 additions and 3 removals\n     \u001b[38;5;246m  41\u001b[0m \u001b[48;2;28;68;40m+   const body = ContractInput.parse(req.body);\u001b[0m\n     \u001b[38;5;246m  42\u001b[0m \u001b[48;2;28;68;40m+   if (body.endsAt <= body.startsAt) {\u001b[0m\n     \u001b[38;5;246m  43\u001b[0m \u001b[48;2;28;68;40m+     return reply.code(422).send({ error: \"endsAt must be after startsAt\" });\u001b[0m\n     \u001b[38;5;246m  44\u001b[0m \u001b[48;2;28;68;40m+   }\u001b[0m\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mBash\u001b[0m(npm test -- contracts)\n  ⎿  PASS  test/contracts.test.ts (14 tests)\n     Tests: 14 passed, 14 total\n\n\u001b[38;5;231m⏺\u001b[0m All contract tests pass. Committing and pushing `feat/contracts`.\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mBash\u001b[0m(git commit -am \"feat(contracts): validate dates and return 422\")\n  ⎿  [feat/contracts 3f9c2ab] feat(contracts): validate dates and return 422\n      2 files changed, 61 insertions(+), 5 deletions(-)\n\n\u001b[38;5;244m────────────────────────────────────────────────────────────\u001b[0m\n \u001b[1mBash command\u001b[0m\n\n   git push origin feat/contracts\n   \u001b[38;5;246mPush the contracts branch\u001b[0m\n\n Do you want to proceed?\n \u001b[38;5;153m❯ 1. Yes\u001b[0m\n   2. Yes, and don't ask again for git push commands in /Users/you/Code/acme-api\n   3. No, and tell Claude what to do differently (esc)\n",
+  "notes-app__claude": "\u001b[38;5;209m ▐▛███▜▌\u001b[0m   \u001b[1mClaude Code\u001b[0m \u001b[38;5;246mv2.4.1\u001b[0m\n\u001b[38;5;209m▝▜█████▛▘\u001b[0m  \u001b[38;5;246mOpus · Claude Max\u001b[0m\n\u001b[38;5;209m  ▘▘ ▝▝\u001b[0m    \u001b[38;5;246m~/Code/notes-app\u001b[0m\n\n\u001b[38;5;246m\u001b[48;5;237m❯ \u001b[38;5;231mset up the sync worker so notes are saved to the staging database too\u001b[0m\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mRead\u001b[0m(src/sync/worker.ts)\n  ⎿  Read 58 lines\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mRead\u001b[0m(docker-compose.yml)\n  ⎿  Read 31 lines\n\n\u001b[38;5;231m⏺\u001b[0m The sync worker writes to SQLite locally. For staging there are two options\n  in the repo already:\n\n    1. \u001b[1mPostgres\u001b[0m via the `db` service in docker-compose.yml (used by CI)\n    2. \u001b[1mTurso\u001b[0m (libSQL), which `src/sync/remote.ts` was started for\n\n  Which database should I use for staging?\n\n\u001b[38;5;246m✻ Worked for 42s\u001b[0m\n\n\u001b[38;5;244m────────────────────────────────────────────────────────────\u001b[0m\n❯ \u001b[2mPostgres, same as CI\u001b[0m\n\u001b[38;5;244m────────────────────────────────────────────────────────────\u001b[0m\n  \u001b[38;5;220m⏵⏵ accept edits on\u001b[38;5;246m (shift+tab to cycle)\u001b[0m\n",
+  "acme-web__claude": "\u001b[38;5;209m ▐▛███▜▌\u001b[0m   \u001b[1mClaude Code\u001b[0m \u001b[38;5;246mv2.4.1\u001b[0m\n\u001b[38;5;209m▝▜█████▛▘\u001b[0m  \u001b[38;5;246mOpus · Claude Max\u001b[0m\n\u001b[38;5;209m  ▘▘ ▝▝\u001b[0m    \u001b[38;5;246m~/Code/acme-web\u001b[0m\n\n\u001b[38;5;246m\u001b[48;5;237m❯ \u001b[38;5;231mthe checkout form overflows on iPhone SE, fix it\u001b[0m\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mRead\u001b[0m(src/components/CheckoutForm.tsx)\n  ⎿  Read 211 lines\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mRead\u001b[0m(src/styles/checkout.css)\n  ⎿  Read 74 lines\n\n\u001b[38;5;231m⏺\u001b[0m The address row uses a fixed `grid-template-columns: 220px 220px`, which is wider\n  than a 320px screen. I'll switch it to a single column below 480px.\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mUpdate\u001b[0m(src/styles/checkout.css)\n  ⎿  Updated src/styles/checkout.css with 6 additions and 1 removal\n     \u001b[38;5;246m  12\u001b[0m \u001b[48;2;90;32;36m-   grid-template-columns: 220px 220px;\u001b[0m\n     \u001b[38;5;246m  12\u001b[0m \u001b[48;2;28;68;40m+   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));\u001b[0m\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mBash\u001b[0m(npx playwright test checkout --project=mobile)\n  ⎿  3 passed (8.1s)\n\n\u001b[38;5;231m⏺\u001b[0m Fixed. The form now stacks on narrow screens and the mobile checkout tests pass.\n\n\u001b[38;5;246m✻ Worked for 2m 10s\u001b[0m\n\n\u001b[38;5;244m────────────────────────────────────────────────────────────\u001b[0m\n❯ \n\u001b[38;5;244m────────────────────────────────────────────────────────────\u001b[0m\n  \u001b[38;5;220m⏵⏵ accept edits on\u001b[38;5;246m (shift+tab to cycle)\u001b[0m\n",
+  "weather-cli__claude": "\u001b[38;5;209m ▐▛███▜▌\u001b[0m   \u001b[1mClaude Code\u001b[0m \u001b[38;5;246mv2.4.1\u001b[0m\n\u001b[38;5;209m▝▜█████▛▘\u001b[0m  \u001b[38;5;246mOpus · Claude Max\u001b[0m\n\u001b[38;5;209m  ▘▘ ▝▝\u001b[0m    \u001b[38;5;246m~/Code/weather-cli\u001b[0m\n\n\u001b[38;5;246m\u001b[48;5;237m❯ \u001b[38;5;231madd an --hourly flag that prints the next 12 hours as a table\u001b[0m\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mRead\u001b[0m(cmd/forecast.go)\n  ⎿  Read 120 lines\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mUpdate\u001b[0m(cmd/forecast.go)\n  ⎿  Updated cmd/forecast.go with 38 additions\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mBash\u001b[0m(go test ./...)\n  ⎿  ok  \texample.com/weather-cli/cmd\t0.412s\n     ok  \texample.com/weather-cli/api\t0.208s\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mBash\u001b[0m(go run . forecast --hourly --city Lisbon)\n  ⎿   TIME   TEMP   RAIN   WIND\n      14:00  21°C   0%     12 km/h\n      15:00  22°C   0%     14 km/h\n      16:00  21°C   10%    15 km/h\n\n\u001b[38;5;231m⏺\u001b[0m `--hourly` is in. It reuses the existing API client and respects `--units`.\n\n\u001b[38;5;246m✻ Worked for 1m 31s\u001b[0m\n\n\u001b[38;5;244m────────────────────────────────────────────────────────────\u001b[0m\n❯ \n\u001b[38;5;244m────────────────────────────────────────────────────────────\u001b[0m\n  \u001b[38;5;220m⏵⏵ accept edits on\u001b[38;5;246m (shift+tab to cycle)\u001b[0m\n",
+  "portfolio__claude": "\u001b[38;5;209m ▐▛███▜▌\u001b[0m   \u001b[1mClaude Code\u001b[0m \u001b[38;5;246mv2.4.1\u001b[0m\n\u001b[38;5;209m▝▜█████▛▘\u001b[0m  \u001b[38;5;246mOpus · Claude Max\u001b[0m\n\u001b[38;5;209m  ▘▘ ▝▝\u001b[0m    \u001b[38;5;246m~/Code/portfolio\u001b[0m\n\n\u001b[38;5;246m\u001b[48;5;237m❯ \u001b[38;5;231mupgrade the site to Astro 5 and fix whatever breaks\u001b[0m\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mBash\u001b[0m(npm install astro@latest)\n  ⎿  added 12 packages, changed 48 packages in 9s\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mBash\u001b[0m(npm run build)\n  ⎿  \u001b[38;5;203m[content] The collection \"projects\" does not exist.\u001b[0m\n     \u001b[38;5;203mError: build failed\u001b[0m\n\n\u001b[38;5;231m⏺\u001b[0m Astro 5 moved content collections to `src/content.config.ts`. Moving the\n  schema there and switching to the `glob()` loader.\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mWrite\u001b[0m(src/content.config.ts)\n  ⎿  Wrote 27 lines to src/content.config.ts\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mBash\u001b[0m(npm run build)\n  ⎿  12 page(s) built in 3.42s\n     Complete!\n\n\u001b[38;5;231m⏺\u001b[0m The build passes on Astro 5. I also removed the old `src/content/config.ts`.\n\n\u001b[38;5;246m✻ Worked for 3m 05s\u001b[0m\n\n\u001b[38;5;244m────────────────────────────────────────────────────────────\u001b[0m\n❯ \n\u001b[38;5;244m────────────────────────────────────────────────────────────\u001b[0m\n  \u001b[38;5;220m⏵⏵ accept edits on\u001b[38;5;246m (shift+tab to cycle)\u001b[0m\n",
+  "acme-api__claude-2": "\u001b[38;5;209m ▐▛███▜▌\u001b[0m   \u001b[1mClaude Code\u001b[0m \u001b[38;5;246mv2.4.1\u001b[0m\n\u001b[38;5;209m▝▜█████▛▘\u001b[0m  \u001b[38;5;246mOpus · Claude Max\u001b[0m\n\u001b[38;5;209m  ▘▘ ▝▝\u001b[0m    \u001b[38;5;246m~/Code/acme-api\u001b[0m\n\n\u001b[38;5;246m\u001b[48;5;237m❯ \u001b[38;5;231madd rate limiting to the public routes, 60 requests a minute per IP\u001b[0m\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mRead\u001b[0m(src/server.ts)\n  ⎿  Read 64 lines\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mBash\u001b[0m(npm install @fastify/rate-limit)\n  ⎿  added 2 packages in 2s\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mUpdate\u001b[0m(src/server.ts)\n  ⎿  Updated src/server.ts with 9 additions\n     \u001b[38;5;246m  22\u001b[0m \u001b[48;2;28;68;40m+ await app.register(rateLimit, { max: 60, timeWindow: \"1 minute\" });\u001b[0m\n\n\u001b[38;5;114m⏺\u001b[0m \u001b[1mWrite\u001b[0m(test/rate-limit.test.ts)\n  ⎿  Wrote 41 lines to test/rate-limit.test.ts\n\n\u001b[38;5;209m✶\u001b[0m \u001b[38;5;209mRunning the test suite…\u001b[0m \u001b[38;5;246m(52s · ↓ 2.8k tokens · esc to interrupt)\u001b[0m\n\n\u001b[38;5;244m────────────────────────────────────────────────────────────\u001b[0m\n❯ \n\u001b[38;5;244m────────────────────────────────────────────────────────────\u001b[0m\n",
+  "acme-web__npm": "you@mac acme-web % npm run dev\n\n> acme-web@0.9.0 dev\n> vite\n\n  \u001b[38;5;114mVITE v6.2.0\u001b[0m  ready in 412 ms\n\n  ➜  \u001b[1mLocal\u001b[0m:   \u001b[38;5;153mhttp://localhost:5173/\u001b[0m\n  ➜  Network: use --host to expose\n\n\u001b[38;5;246m10:41:07\u001b[0m \u001b[38;5;153m[vite]\u001b[0m hmr update /src/components/CheckoutForm.tsx\n\u001b[38;5;246m10:41:09\u001b[0m \u001b[38;5;153m[vite]\u001b[0m hmr update /src/styles/checkout.css\n\u001b[38;5;246m10:42:30\u001b[0m \u001b[38;5;153m[vite]\u001b[0m page reload src/main.tsx\n",
+  "weather-cli__codex": "\u001b[1m>_ OpenAI Codex\u001b[0m \u001b[38;5;246m(v0.48)\u001b[0m\n\u001b[38;5;246mmodel: gpt-5-codex   directory: ~/Code/weather-cli\u001b[0m\n\n\u001b[38;5;246m›\u001b[0m write table-driven tests for the units conversion\n\n• Added \u001b[1minternal/units/units_test.go\u001b[0m with 18 cases (C/F, km/h/mph, mm/in).\n• \u001b[38;5;114mgo test ./internal/units\u001b[0m passes.\n\n\u001b[38;5;246m›\u001b[0m \n"
+ },
+ "snapshot": {
+  "tabs": [
+   {
+    "name": "abacus__claude",
+    "project": "/Users/you/Code/abacus",
+    "cwd": "/Users/you/Code/abacus",
+    "agent": "claude",
+    "state": "running",
+    "detail": "",
+    "title": "Add CSV export for invoices",
+    "since": 1794920115,
+    "background": false
+   },
+   {
+    "name": "acme-api__claude",
+    "project": "/Users/you/Code/acme-api",
+    "cwd": "/Users/you/Code/acme-api",
+    "agent": "claude",
+    "state": "waiting",
+    "detail": "Bash: git push origin feat/contracts",
+    "title": "Contracts endpoint and validation",
+    "since": 1794920090,
+    "background": false
+   },
+   {
+    "name": "notes-app__claude",
+    "project": "/Users/you/Code/notes-app",
+    "cwd": "/Users/you/Code/notes-app",
+    "agent": "claude",
+    "state": "running",
+    "detail": "",
+    "title": "Sync notes to the staging database",
+    "since": 1794920127,
+    "background": false
+   },
+   {
+    "name": "acme-web__claude",
+    "project": "/Users/you/Code/acme-web",
+    "cwd": "/Users/you/Code/acme-web",
+    "agent": "claude",
+    "state": "idle",
+    "detail": "",
+    "title": "Fix checkout form on small screens",
+    "since": 1794919835,
+    "background": false
+   },
+   {
+    "name": "weather-cli__claude",
+    "project": "/Users/you/Code/weather-cli",
+    "cwd": "/Users/you/Code/weather-cli",
+    "agent": "claude",
+    "state": "idle",
+    "detail": "",
+    "title": "Hourly forecast flag",
+    "since": 1794919235,
+    "background": false
+   },
+   {
+    "name": "portfolio__claude",
+    "project": "/Users/you/Code/portfolio",
+    "cwd": "/Users/you/Code/portfolio",
+    "agent": "claude",
+    "state": "idle",
+    "detail": "",
+    "title": "Upgrade the site to Astro 5",
+    "since": 1794918635,
+    "background": false
+   },
+   {
+    "name": "acme-api__claude-2",
+    "project": "/Users/you/Code/acme-api",
+    "cwd": "/Users/you/Code/acme-api",
+    "agent": "claude",
+    "state": "running",
+    "detail": "",
+    "title": "Rate limiting for public routes",
+    "since": 1794920130,
+    "background": true
+   },
+   {
+    "name": "acme-web__npm",
+    "project": "/Users/you/Code/acme-web",
+    "cwd": "/Users/you/Code/acme-web",
+    "agent": "npm",
+    "state": "running",
+    "detail": "",
+    "title": "",
+    "since": 1794920075,
+    "background": false
+   },
+   {
+    "name": "weather-cli__codex",
+    "project": "/Users/you/Code/weather-cli",
+    "cwd": "/Users/you/Code/weather-cli",
+    "agent": "codex",
+    "state": "idle",
+    "detail": "",
+    "title": "",
+    "since": 1794917735,
+    "background": false
+   }
+  ],
+  "external": [
+   {
+    "name": "portfolio-7a",
+    "cwd": "/Users/you/Code/portfolio",
+    "state": "idle",
+    "detail": "",
+    "title": "Alt text for project images",
+    "session_id": "6f1d2c3a-8b4e-4f5a-9c7d-1e2f3a4b5c6d",
+    "background": false,
+    "unlisted": false,
+    "pid": 51234
+   },
+   {
+    "name": "release-notes",
+    "cwd": "/Users/you/Code/acme-web",
+    "state": "running",
+    "detail": "",
+    "title": "Draft the 0.9 release notes",
+    "session_id": "0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d",
+    "background": true,
+    "unlisted": false,
+    "pid": 51877
+   }
+  ],
+  "git": {
+   "/Users/you/Code/abacus": {
+    "branch": "feat/csv-export",
+    "changed": 3,
+    "ahead": 0,
+    "behind": 0
+   },
+   "/Users/you/Code/acme-api": {
+    "branch": "feat/contracts",
+    "changed": 0,
+    "ahead": 1,
+    "behind": 0
+   },
+   "/Users/you/Code/notes-app": {
+    "branch": "main",
+    "changed": 2,
+    "ahead": 0,
+    "behind": 0
+   },
+   "/Users/you/Code/acme-web": {
+    "branch": "fix/checkout-mobile",
+    "changed": 2,
+    "ahead": 0,
+    "behind": 3
+   },
+   "/Users/you/Code/weather-cli": {
+    "branch": "main",
+    "changed": 0,
+    "ahead": 2,
+    "behind": 0
+   },
+   "/Users/you/Code/portfolio": {
+    "branch": "astro-5",
+    "changed": 7,
+    "ahead": 0,
+    "behind": 0
+   }
+  }
+ }
+}
