@@ -340,14 +340,24 @@ function buildRows(grid: HTMLElement, rowNames: string[][], sizes: TrackSizes, v
       const min = Math.min(pair / 2, total * (120 / span)); // panes keep ~120 px
       document.body.classList.add(dir === "v" ? "resizing-c" : "resizing-r");
       let raf = 0;
+      let snapped = false;
+      const snapWithin = total * (14 / span); // ~14 px either side of an even split
       g.onpointermove = (ev) => {
         const pos = ((dir === "v" ? ev.clientX - rect.left : ev.clientY - rect.top) / span) * total;
-        const left = Math.max(min, Math.min(pair - min, pos - before));
+        let left = Math.max(min, Math.min(pair - min, pos - before));
+        // An even split between the two holds for a moment, with a tap on
+        // the trackpad, so 50 % is easy to hit.
+        const snap = Math.abs(left - pair / 2) < snapWithin;
+        if (snap) left = pair / 2;
+        if (snap && !snapped) invoke("haptic").catch(() => {});
+        snapped = snap;
+        g.classList.toggle("snap", snap);
         t[i] = left;
         t[i + 1] = pair - left;
         if (!raf) raf = requestAnimationFrame(() => { raf = 0; apply(); });
       };
       const done = () => {
+        g.classList.remove("snap");
         g.onpointermove = null;
         g.onpointerup = null;
         g.onpointercancel = null;

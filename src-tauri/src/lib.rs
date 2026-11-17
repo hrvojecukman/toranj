@@ -182,6 +182,19 @@ fn detach(bridge: State<pty::Bridge>, id: u32) {
     bridge.detach(id)
 }
 
+/// A light tap on a Force Touch trackpad (e.g. a divider snapping into place).
+#[tauri::command]
+fn haptic(app: tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    let _ = app.run_on_main_thread(|| {
+        use objc2_app_kit::{NSHapticFeedbackManager, NSHapticFeedbackPattern, NSHapticFeedbackPerformanceTime, NSHapticFeedbackPerformer};
+        NSHapticFeedbackManager::defaultPerformer()
+            .performFeedbackPattern_performanceTime(NSHapticFeedbackPattern::Alignment, NSHapticFeedbackPerformanceTime::Now);
+    });
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+}
+
 /// Plays a macOS system sound (notifications stay silent while the app is in front).
 #[tauri::command]
 fn play_sound(name: String) {
@@ -384,6 +397,7 @@ pub fn run() {
             detach,
             open_in_editor,
             play_sound,
+            haptic,
             claude_statusline_status,
             install_claude_statusline,
             uninstall_claude_statusline,

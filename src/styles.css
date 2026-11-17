@@ -483,3 +483,4 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .gut.h:hover::after, body.resizing-r .gut.h::after { top: 1px; height: 3px; }
 body.resizing-c, body.resizing-c * { cursor: col-resize !important; user-select: none; }
 body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select: none; }
+.gut.snap::after { background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
