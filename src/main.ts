@@ -26,7 +26,9 @@ const SHORT: Record<State, string> = { running: "", waiting: "waiting", idle: ""
 // Hidden tabs have neither: they cost nothing but their tmux session.
 
 type Layout = "single" | "grid" | "cols" | "rows";
-interface ViewPrefs { layout: Layout; multi: Exclude<Layout, "single">; order: string[] }
+/** Track sizes (fr) per grid shape, e.g. "grid:2x2" → columns and rows. */
+interface TrackSizes { c: number[]; r: number[] }
+interface ViewPrefs { layout: Layout; multi: Exclude<Layout, "single">; order: string[]; sizes?: Record<string, TrackSizes> }
 
 const termOptions = {
   fontFamily: '"SF Mono", Menlo, monospace',
@@ -262,8 +264,12 @@ function layoutPanes() {
   for (const [name, p] of panes) if (!names.includes(name)) { p.dispose(); panes.delete(name); }
 
   const { cols, rows } = gridShape(layout, Math.max(1, names.length));
-  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
-  grid.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+  const vkey = cur ? viewKey(cur) : "";
+  const shape = `${layout}:${cols}x${rows}`;
+  const saved = cur ? prefsFor(vkey).sizes?.[shape] : undefined;
+  const fr = (v: number[] | undefined, n: number) => (v && v.length === n && v.every((x) => x > 0) ? v : Array(n).fill(1));
+  const sizes = { c: fr(saved?.c, cols), r: fr(saved?.r, rows) };
+  applyTracks(grid, sizes);
   grid.classList.toggle("multi", names.length > 1);
 
   const fresh: Pane[] = [];
@@ -279,7 +285,79 @@ function layoutPanes() {
     doneMarks.delete(p.name); // a visible tab counts as seen
     p.attach();
   }
+  drawGutters(grid, names.length > 1 ? sizes : null, vkey, shape);
   paintPanes();
+}
+
+function applyTracks(grid: HTMLElement, s: TrackSizes) {
+  grid.style.gridTemplateColumns = s.c.map((f) => `minmax(0, ${f}fr)`).join(" ");
+  grid.style.gridTemplateRows = s.r.map((f) => `minmax(0, ${f}fr)`).join(" ");
+}
+
+/** Handles on the lines between panes: drag to resize, double-click to even
+ * them out. Sizes are kept per project or group and per grid shape. */
+function drawGutters(grid: HTMLElement, sizes: TrackSizes | null, vkey: string, shape: string) {
+  grid.querySelectorAll(".gutter").forEach((g) => g.remove());
+  if (!sizes) return;
+  const save = () => {
+    const p = prefsFor(vkey);
+    savePrefs(vkey, { ...p, sizes: { ...(p.sizes ?? {}), [shape]: { c: [...sizes.c], r: [...sizes.r] } } });
+  };
+  const place = () => {
+    for (const g of grid.querySelectorAll<HTMLElement>(".gutter")) {
+      const axis = g.dataset.axis as "c" | "r";
+      const t = sizes[axis];
+      const i = Number(g.dataset.i);
+      const pct = (t.slice(0, i + 1).reduce((a, b) => a + b, 0) / t.reduce((a, b) => a + b, 0)) * 100;
+      if (axis === "c") g.style.left = `calc(${pct}% - 3px)`; else g.style.top = `calc(${pct}% - 3px)`;
+    }
+  };
+  for (const axis of ["c", "r"] as const) {
+    for (let i = 0; i < sizes[axis].length - 1; i++) {
+      const g = document.createElement("div");
+      g.className = `gutter ${axis === "c" ? "v" : "h"}`;
+      g.dataset.axis = axis;
+      g.dataset.i = String(i);
+      g.title = "Drag to resize · double-click to even out";
+      g.onpointerdown = (e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        try { g.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+        const t = sizes[axis];
+        const rect = grid.getBoundingClientRect();
+        const total = t.reduce((a, b) => a + b, 0);
+        const span = axis === "c" ? rect.width : rect.height;
+        const before = t.slice(0, i).reduce((a, b) => a + b, 0);
+        const pair = t[i] + t[i + 1];
+        const min = Math.min(pair / 2, total * (120 / span)); // panes keep ~120 px
+        document.body.classList.add(axis === "c" ? "resizing-c" : "resizing-r");
+        let raf = 0;
+        g.onpointermove = (ev) => {
+          const pos = ((axis === "c" ? ev.clientX - rect.left : ev.clientY - rect.top) / span) * total;
+          const left = Math.max(min, Math.min(pair - min, pos - before));
+          t[i] = left;
+          t[i + 1] = pair - left;
+          if (!raf) raf = requestAnimationFrame(() => { raf = 0; applyTracks(grid, sizes); place(); });
+        };
+        g.onpointerup = () => {
+          g.onpointermove = null;
+          g.onpointerup = null;
+          document.body.classList.remove("resizing-c", "resizing-r");
+          save();
+          for (const p of panes.values()) p.refit();
+        };
+      };
+      g.ondblclick = () => {
+        sizes[axis].fill(1);
+        applyTracks(grid, sizes);
+        place();
+        save();
+      };
+      grid.append(g);
+    }
+  }
+  place();
 }
 
 /** Panes on screen that finished since you last clicked or typed in them. */
