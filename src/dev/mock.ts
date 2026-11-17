@@ -93,8 +93,8 @@ export async function installMock() {
   }, 900);
   // ?resize: drag the first vertical pane divider to 70 %.
   if (params.has("resize")) setTimeout(() => {
-    const g = document.querySelector<HTMLElement>("#grid .gutter.v");
-    const r = document.getElementById("grid")!.getBoundingClientRect();
+    const g = document.querySelector<HTMLElement>("#grid .gut.v");
+    const r = (g?.parentElement ?? document.getElementById("grid")!).getBoundingClientRect();
     if (!g) return;
     g.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 1 }));
     g.dispatchEvent(new PointerEvent("pointermove", { clientX: r.left + r.width * 0.7, clientY: r.top + 50, pointerId: 1 }));

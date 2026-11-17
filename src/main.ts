@@ -26,8 +26,8 @@ const SHORT: Record<State, string> = { running: "", waiting: "waiting", idle: ""
 // Hidden tabs have neither: they cost nothing but their tmux session.
 
 type Layout = "single" | "grid" | "cols" | "rows";
-/** Track sizes (fr) per grid shape, e.g. "grid:2x2" → columns and rows. */
-interface TrackSizes { c: number[]; r: number[] }
+/** Pane sizes per layout shape: row heights, and each row's pane widths. */
+interface TrackSizes { r: number[]; c: number[][] }
 interface ViewPrefs { layout: Layout; multi: Exclude<Layout, "single">; order: string[]; sizes?: Record<string, TrackSizes> }
 
 const termOptions = {
@@ -263,101 +263,110 @@ function layoutPanes() {
 
   for (const [name, p] of panes) if (!names.includes(name)) { p.dispose(); panes.delete(name); }
 
-  const { cols, rows } = gridShape(layout, Math.max(1, names.length));
+  const { cols } = gridShape(layout, Math.max(1, names.length));
+  // Rows of panes; each row sizes its own panes (no shared columns), so a
+  // short last row just shares its width.
+  const rowNames: string[][] = [];
+  for (let i = 0; i < names.length; i += cols) rowNames.push(names.slice(i, i + cols));
   const vkey = cur ? viewKey(cur) : "";
-  const shape = `${layout}:${cols}x${rows}`;
+  const shape = `${layout}:${rowNames.map((r) => r.length).join("-")}`;
   const saved = cur ? prefsFor(vkey).sizes?.[shape] : undefined;
-  const fr = (v: number[] | undefined, n: number) => (v && v.length === n && v.every((x) => x > 0) ? v : Array(n).fill(1));
-  const sizes = { c: fr(saved?.c, cols), r: fr(saved?.r, rows) };
-  applyTracks(grid, sizes);
+  const ok = (v: unknown, n: number): v is number[] => Array.isArray(v) && v.length === n && v.every((x) => typeof x === "number" && x > 0);
+  const sizes: TrackSizes = {
+    r: ok(saved?.r, rowNames.length) ? [...saved!.r] : rowNames.map(() => 1),
+    c: rowNames.map((row, i) => (Array.isArray(saved?.c) && ok(saved!.c[i], row.length) ? [...saved!.c[i]] : row.map(() => 1))),
+  };
   grid.classList.toggle("multi", names.length > 1);
 
   const fresh: Pane[] = [];
-  names.forEach((name, i) => {
+  for (const name of names) {
     let p = panes.get(name);
     if (!p) { p = new Pane(name, grid); panes.set(name, p); fresh.push(p); paneDone.delete(name); }
-    if (grid.children[i] !== p.el) grid.insertBefore(p.el, grid.children[i] ?? null);
-    // The last pane fills the empty cells of an incomplete last row.
-    const spare = cols * rows - names.length;
-    p.el.style.gridColumn = i === names.length - 1 && spare > 0 && layout === "grid" ? `span ${spare + 1}` : "";
-  });
+  }
+  buildRows(grid, rowNames, sizes, vkey, shape);
   for (const p of fresh) {
     doneMarks.delete(p.name); // a visible tab counts as seen
     p.attach();
   }
-  drawGutters(grid, names.length > 1 ? sizes : null, vkey, shape);
+  // Re-measure every terminal once the new layout has settled.
+  requestAnimationFrame(() => { for (const p of panes.values()) p.refit(); });
   paintPanes();
 }
 
-function applyTracks(grid: HTMLElement, s: TrackSizes) {
-  grid.style.gridTemplateColumns = s.c.map((f) => `minmax(0, ${f}fr)`).join(" ");
-  grid.style.gridTemplateRows = s.r.map((f) => `minmax(0, ${f}fr)`).join(" ");
-}
-
-/** Handles on the lines between panes: drag to resize, double-click to even
- * them out. Sizes are kept per project or group and per grid shape. */
-function drawGutters(grid: HTMLElement, sizes: TrackSizes | null, vkey: string, shape: string) {
-  grid.querySelectorAll(".gutter").forEach((g) => g.remove());
-  if (!sizes) return;
+/** Lays the panes out in rows, with dividers between panes and between rows:
+ * drag a divider to resize, double-click it to even out. */
+function buildRows(grid: HTMLElement, rowNames: string[][], sizes: TrackSizes, vkey: string, shape: string) {
+  document.body.classList.remove("resizing-c", "resizing-r"); // a drag cut short by a re-layout
+  // Keep the panes, rebuild the rows and dividers around them.
+  for (const el of [...grid.children]) if (el.classList.contains("grow") || el.classList.contains("gut")) {
+    for (const tp of [...el.querySelectorAll<HTMLElement>(".tp")]) grid.append(tp);
+    el.remove();
+  }
   const save = () => {
     const p = prefsFor(vkey);
-    savePrefs(vkey, { ...p, sizes: { ...(p.sizes ?? {}), [shape]: { c: [...sizes.c], r: [...sizes.r] } } });
+    savePrefs(vkey, { ...p, sizes: { ...(p.sizes ?? {}), [shape]: { r: [...sizes.r], c: sizes.c.map((c) => [...c]) } } });
   };
-  const place = () => {
-    for (const g of grid.querySelectorAll<HTMLElement>(".gutter")) {
-      const axis = g.dataset.axis as "c" | "r";
-      const t = sizes[axis];
-      const i = Number(g.dataset.i);
-      const pct = (t.slice(0, i + 1).reduce((a, b) => a + b, 0) / t.reduce((a, b) => a + b, 0)) * 100;
-      if (axis === "c") g.style.left = `calc(${pct}% - 3px)`; else g.style.top = `calc(${pct}% - 3px)`;
-    }
-  };
-  for (const axis of ["c", "r"] as const) {
-    for (let i = 0; i < sizes[axis].length - 1; i++) {
-      const g = document.createElement("div");
-      g.className = `gutter ${axis === "c" ? "v" : "h"}`;
-      g.dataset.axis = axis;
-      g.dataset.i = String(i);
-      g.title = "Drag to resize · double-click to even out";
-      g.onpointerdown = (e) => {
-        if (e.button !== 0) return;
-        e.preventDefault();
-        e.stopPropagation();
-        try { g.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
-        const t = sizes[axis];
-        const rect = grid.getBoundingClientRect();
-        const total = t.reduce((a, b) => a + b, 0);
-        const span = axis === "c" ? rect.width : rect.height;
-        const before = t.slice(0, i).reduce((a, b) => a + b, 0);
-        const pair = t[i] + t[i + 1];
-        const min = Math.min(pair / 2, total * (120 / span)); // panes keep ~120 px
-        document.body.classList.add(axis === "c" ? "resizing-c" : "resizing-r");
-        let raf = 0;
-        g.onpointermove = (ev) => {
-          const pos = ((axis === "c" ? ev.clientX - rect.left : ev.clientY - rect.top) / span) * total;
-          const left = Math.max(min, Math.min(pair - min, pos - before));
-          t[i] = left;
-          t[i + 1] = pair - left;
-          if (!raf) raf = requestAnimationFrame(() => { raf = 0; applyTracks(grid, sizes); place(); });
-        };
-        g.onpointerup = () => {
-          g.onpointermove = null;
-          g.onpointerup = null;
-          document.body.classList.remove("resizing-c", "resizing-r");
-          save();
-          for (const p of panes.values()) p.refit();
-        };
+  const rowEls: HTMLElement[] = [];
+  rowNames.forEach((row, r) => {
+    const rowEl = document.createElement("div");
+    rowEl.className = "grow";
+    rowEl.style.flex = `${sizes.r[r]} 1 0`;
+    row.forEach((name, c) => {
+      const p = panes.get(name)!;
+      p.el.style.flex = `${sizes.c[r][c]} 1 0`;
+      rowEl.append(p.el);
+      if (c < row.length - 1) rowEl.append(divider("v", sizes.c[r], c, () => row.map((n) => panes.get(n)!.el), rowEl));
+    });
+    rowEls.push(rowEl);
+    grid.append(rowEl);
+    if (r < rowNames.length - 1) grid.append(divider("h", sizes.r, r, () => rowEls, grid));
+  });
+
+  function divider(dir: "v" | "h", t: number[], i: number, items: () => HTMLElement[], box: HTMLElement): HTMLElement {
+    const g = document.createElement("div");
+    g.className = `gut ${dir}`;
+    g.title = "Drag to resize · double-click to even out";
+    const apply = () => items().forEach((el, k) => { if (t[k] !== undefined) el.style.flex = `${t[k]} 1 0`; });
+    g.onpointerdown = (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try { g.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+      const rect = box.getBoundingClientRect();
+      const span = dir === "v" ? rect.width : rect.height;
+      const total = t.reduce((a, b) => a + b, 0);
+      const before = t.slice(0, i).reduce((a, b) => a + b, 0);
+      const pair = t[i] + t[i + 1];
+      const min = Math.min(pair / 2, total * (120 / span)); // panes keep ~120 px
+      document.body.classList.add(dir === "v" ? "resizing-c" : "resizing-r");
+      let raf = 0;
+      g.onpointermove = (ev) => {
+        const pos = ((dir === "v" ? ev.clientX - rect.left : ev.clientY - rect.top) / span) * total;
+        const left = Math.max(min, Math.min(pair - min, pos - before));
+        t[i] = left;
+        t[i + 1] = pair - left;
+        if (!raf) raf = requestAnimationFrame(() => { raf = 0; apply(); });
       };
-      g.ondblclick = () => {
-        sizes[axis].fill(1);
-        applyTracks(grid, sizes);
-        place();
+      const done = () => {
+        g.onpointermove = null;
+        g.onpointerup = null;
+        g.onpointercancel = null;
+        document.body.classList.remove("resizing-c", "resizing-r");
+        apply();
         save();
+        requestAnimationFrame(() => { for (const p of panes.values()) p.refit(); });
       };
-      grid.append(g);
-    }
+      g.onpointerup = done;
+      g.onpointercancel = done;
+    };
+    g.ondblclick = () => {
+      t.fill(1);
+      apply();
+      save();
+      requestAnimationFrame(() => { for (const p of panes.values()) p.refit(); });
+    };
+    return g;
   }
-  place();
 }
 
 /** Panes on screen that finished since you last clicked or typed in them. */
@@ -1356,7 +1365,7 @@ function render() {
   }
   // Tabs opened or closed elsewhere join or leave the grid.
   const want = !cur ? [] : prefsFor(viewKey(cur)).layout === "single" ? [cur.name] : groupTabs(cur).map((t) => t.name);
-  const have = [...$("grid").children].map((el) => (el as HTMLElement).dataset.name);
+  const have = [...$("grid").querySelectorAll<HTMLElement>(".tp")].map((el) => el.dataset.name);
   if (want.join("\n") !== have.join("\n")) layoutPanes();
   else paintPanes();
   if (!snap.tabs.length) overview = false;
