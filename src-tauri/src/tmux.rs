@@ -17,6 +17,7 @@ set -g default-terminal "tmux-256color"
 set -as terminal-features ",xterm-256color:RGB"
 set -g set-clipboard on
 set -g allow-passthrough off
+set -gq get-clipboard off
 set -g focus-events on
 set -g destroy-unattached off
 set -g detach-on-destroy off
@@ -202,15 +203,17 @@ pub fn create(project: &str, cwd: &str, command: &str) -> Result<String, String>
     if !Path::new(cwd).is_dir() {
         return Err("folder does not exist".into());
     }
+    // Kept short enough to stay a valid tab name with a "-N" suffix.
+    let cut = |s: String, n: usize| s.chars().take(n).collect::<String>();
     let base = format!(
         "{}__{}",
-        slug(
+        cut(slug(
             project
                 .rsplit('/')
                 .find(|p| !p.is_empty())
                 .unwrap_or(project)
-        ),
-        slug(command.split_whitespace().next().unwrap_or("shell"))
+        ), 60),
+        cut(slug(command.split_whitespace().next().unwrap_or("shell")), 40)
     );
     let existing: std::collections::HashSet<String> = list().into_iter().map(|s| s.name).collect();
     let mut name = base.clone();
@@ -221,7 +224,7 @@ pub fn create(project: &str, cwd: &str, command: &str) -> Result<String, String>
     }
     let env = format!("TORANJ_TAB={name}");
     // tmux expands #{…} and #(…) in -c: a folder name must stay a name.
-    let start_dir = cwd.replace('#', "##");
+    let start_dir = escape_format(cwd);
     run(&[
         "new-session",
         "-d",
@@ -238,10 +241,33 @@ pub fn create(project: &str, cwd: &str, command: &str) -> Result<String, String>
     ])?;
     run(&["set-option", "-t", &exact(&name), "@toranj_project", project])?;
     if !command.trim().is_empty() {
-        run(&["send-keys", "-t", &name, "-l", command])?;
-        run(&["send-keys", "-t", &name, "Enter"])?;
+        run(&["send-keys", "-t", &exact(&name), "-l", command])?;
+        run(&["send-keys", "-t", &exact(&name), "Enter"])?;
     }
     Ok(name)
+}
+
+/// `s` with tmux formats disarmed: '#' doubled, except in a run of '#'
+/// followed by '[' (style markup), which tmux already leaves as it is.
+fn escape_format(s: &str) -> String {
+    let b: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len() + 8);
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == '#' {
+            let start = i;
+            while i < b.len() && b[i] == '#' {
+                i += 1;
+            }
+            let run = i - start;
+            let literal = b.get(i) == Some(&'[');
+            out.extend(std::iter::repeat_n('#', if literal { run } else { run * 2 }));
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    out
 }
 
 /// Exact tmux target for a session. A bare name falls back to prefix and
@@ -273,6 +299,18 @@ pub fn clear_bell(name: &str) {
         "@toranj_bell",
         "0",
     ]);
+}
+
+#[cfg(test)]
+mod format_tests {
+    use super::escape_format;
+    #[test]
+    fn disarms_formats_but_keeps_style_runs() {
+        assert_eq!(escape_format("/a/#{x}/#(y)"), "/a/##{x}/##(y)");
+        assert_eq!(escape_format("p#[fg=red]q"), "p#[fg=red]q");
+        assert_eq!(escape_format("h##k#"), "h####k##");
+        assert_eq!(escape_format("plain"), "plain");
+    }
 }
 
 #[cfg(test)]
