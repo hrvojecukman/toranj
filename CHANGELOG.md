@@ -4,6 +4,12 @@ All notable changes to Toranj. The format follows [Keep a Changelog](https://kee
 
 ## [Unreleased]
 
+### Fixed
+- New terminals didn't start their command (e.g. `claude`) and showed "no such session" (regression in 0.1.0).
+
+### Changed
+- On launch, Toranj opens the terminal you last had on screen, or the Overview, instead of the first project by name.
+
 ### Added
 - New terminal can open a whole workspace: a folder holding several projects (e.g. an app, its backend and website) is offered as "<folder> · whole workspace · N projects", so the agent gets all of them as context. In the sidebar it joins the folder's group as "All projects".
 

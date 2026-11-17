@@ -72,9 +72,18 @@ fn conf_path() -> &'static Path {
     })
 }
 
+fn socket() -> String {
+    // Tests run against a throwaway server, never the user's.
+    #[cfg(test)]
+    if let Ok(s) = std::env::var("TORANJ_TEST_SOCKET") {
+        return s;
+    }
+    SOCKET.to_string()
+}
+
 fn tmux() -> Command {
     let mut c = Command::new(bin());
-    c.arg("-L").arg(SOCKET).arg("-f").arg(conf_path());
+    c.arg("-L").arg(socket()).arg("-f").arg(conf_path());
     c
 }
 
@@ -239,10 +248,10 @@ pub fn create(project: &str, cwd: &str, command: &str) -> Result<String, String>
         "-e",
         &env,
     ])?;
-    run(&["set-option", "-t", &exact(&name), "@toranj_project", project])?;
+    run(&["set-option", "-t", &exact_pane(&name), "@toranj_project", project])?;
     if !command.trim().is_empty() {
-        run(&["send-keys", "-t", &exact(&name), "-l", command])?;
-        run(&["send-keys", "-t", &exact(&name), "Enter"])?;
+        run(&["send-keys", "-t", &exact_pane(&name), "-l", command])?;
+        run(&["send-keys", "-t", &exact_pane(&name), "Enter"])?;
     }
     Ok(name)
 }
@@ -270,7 +279,9 @@ fn escape_format(s: &str) -> String {
     out
 }
 
-/// Exact tmux target for a session. A bare name falls back to prefix and
+/// Exact tmux target for a session (only for commands that take a session,
+/// like kill-session and attach-session; options and keys take a pane, so
+/// they need `exact_pane`, or tmux answers "no such session"). A bare name falls back to prefix and
 /// pattern matching when that session is gone, so "proj__claude" could hit
 /// "proj__claude-2"; `=` forces an exact match.
 fn exact(name: &str) -> String {
@@ -299,6 +310,41 @@ pub fn clear_bell(name: &str) {
         "@toranj_bell",
         "0",
     ]);
+}
+
+#[cfg(test)]
+mod create_tests {
+    /// A new tab gets its project option and its command typed in.
+    #[test]
+    fn create_types_the_command() {
+        if !super::bin().exists() {
+            return; // no tmux here (e.g. CI)
+        }
+        let sock = format!("toranj_test_{}", std::process::id());
+        unsafe { std::env::set_var("TORANJ_TEST_SOCKET", &sock) };
+        // The throwaway server goes away even if an assertion fails.
+        struct Kill;
+        impl Drop for Kill {
+            fn drop(&mut self) {
+                let _ = super::run(&["kill-server"]);
+            }
+        }
+        let _kill = Kill;
+        let dir = std::env::temp_dir();
+        let d = dir.to_string_lossy();
+        let name = super::create(&d, &d, "echo toranj-ok").expect("tab is created");
+        let project = super::run(&["show-options", "-v", "-t", &super::exact_pane(&name), "@toranj_project"]).unwrap_or_default();
+        let mut screen = String::new();
+        for _ in 0..30 {
+            screen = super::run(&["capture-pane", "-p", "-t", &super::exact_pane(&name)]).unwrap_or_default();
+            if screen.contains("toranj-ok") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert_eq!(project.trim_end_matches('\n'), d, "project option set");
+        assert!(screen.contains("toranj-ok"), "command was typed: {screen}");
+    }
 }
 
 #[cfg(test)]

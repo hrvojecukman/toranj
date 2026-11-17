@@ -317,6 +317,7 @@ function sidebarNumber(name: string) {
 function focusTab(name: string) {
   paneDone.delete(name);
   if (current === name) { paintPanes(); return; }
+  rememberView(name);
   current = name;
   doneMarks.delete(name);
   const tab = snap.tabs.find((t) => t.name === name);
@@ -336,8 +337,14 @@ function flashProject(proj: string) {
   f.classList.add("go");
 }
 
+/** What was on screen, so a restart comes back to it ("" = the overview). */
+function rememberView(tab: string) {
+  try { localStorage.setItem("toranj.view", tab); } catch { /* convenience only */ }
+}
+
 function open(name: string) {
   overview = false;
+  rememberView(name);
   const tab = snap.tabs.find((t) => t.name === name);
   if (tab) {
     const p = groupKey(tab);
@@ -1404,6 +1411,7 @@ const ovShown = () => !$("overview").hidden;
 function toggleOverview(show = !ovShown()) {
   if (!show && !current) return; // nothing selected: the overview is the page
   overview = show && snap.tabs.length > 0;
+  if (overview) rememberView("");
   render();
   if (overview) $("overview").focus();
   else panes.get(current ?? "")?.term.focus();
@@ -2965,6 +2973,11 @@ window.addEventListener("unhandledrejection", (e) => logUi(`rejection: ${String(
   onNotificationClick((tab) => { if (snap.tabs.some((t) => t.name === tab)) open(tab); });
   window.addEventListener("focus", () => { for (const n of panes.keys()) doneMarks.delete(n); render(); });
   await refresh();
-  if (snap.tabs[0]) open(snap.tabs[0].name);
+  // Back to the terminal you last had open, else the overview (never just
+  // the first tab by name).
+  let last: string | null = null;
+  try { last = localStorage.getItem("toranj.view"); } catch { /* none */ }
+  if (last && snap.tabs.some((t) => t.name === last)) open(last);
+  else { overview = snap.tabs.length > 0; render(); }
   setInterval(refresh, 2000);
 })();
