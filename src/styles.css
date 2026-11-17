@@ -484,3 +484,4 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 body.resizing-c, body.resizing-c * { cursor: col-resize !important; user-select: none; }
 body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select: none; }
 .gut.snap::after { background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.proj-item small.wsfolders { white-space: normal; color: var(--fg); opacity: .75; }

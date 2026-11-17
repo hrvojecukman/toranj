@@ -2273,12 +2273,16 @@ function relPath(from: string, to: string): string {
   while (i < a.length && i < b.length && a[i] === b[i]) i++;
   const up = a.length - i;
   if (i < 3 || up > 3) return to; // nothing useful in common: keep it absolute
-  return [...Array(up).fill(".."), ...b.slice(i)].join("/") || ".";
+  const r = [...Array(up).fill(".."), ...b.slice(i)].join("/") || ".";
+  // Never a bare name that could start with "-" and read as an option.
+  return r.startsWith("..") || r === "." ? r : `./${r}`;
 }
 
 /** The command for a workspace entry: claude gets every other folder as --add-dir. */
 function workspaceCommand(cmd: string, folders: string[]): string {
   if (cmd.split(/\s+/)[0] !== "claude") return cmd;
+  // Typed into a shell: no control characters or backslashes, ever.
+  if (folders.some((f) => /[\u0000-\u001f\u007f\\]/.test(f))) return cmd;
   const [first, ...rest] = folders;
   return [cmd, ...rest.map((f) => `--add-dir ${shq(relPath(first, f))}`)].join(" ");
 }
@@ -2330,6 +2334,13 @@ function drawProjects(f: string) {
     const s = document.createElement("small");
     s.textContent = p.path.replace(/^\/Users\/[^/]+/, "~");
     b.append(s);
+    // What the agent will be able to read, in plain sight.
+    if (p.folders) {
+      const f = document.createElement("small");
+      f.className = "wsfolders";
+      f.textContent = `folders: ${[...new Set(p.folders.map((x) => x.replace(/^\/Users\/[^/]+/, "~")))].join(", ")}`;
+      b.append(f);
+    }
     b.onclick = () => { picked = p; drawProjects($<HTMLInputElement>("proj-filter").value); };
     list.append(b);
   }
