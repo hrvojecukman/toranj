@@ -123,7 +123,12 @@ class Pane {
     const t = this.term;
     t.loadAddon(this.fit);
     t.loadAddon(new WebLinksAddon());
-    t.loadAddon(new ClipboardAddon());
+    // Programs may copy (tmux uses OSC 52 for mouse selections) but never
+    // read the clipboard: an OSC 52 query would type it into the terminal.
+    t.loadAddon(new ClipboardAddon(undefined, {
+      readText: () => "",
+      writeText: (_sel, text) => navigator.clipboard.writeText(text),
+    }));
     const uni = new Unicode11Addon();
     t.loadAddon(uni);
     t.unicode.activeVersion = "11";

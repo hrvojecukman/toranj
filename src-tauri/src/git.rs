@@ -150,6 +150,9 @@ fn read(path: &str) -> Option<GitInfo> {
             "--porcelain=v2",
             "--branch",
             "--untracked-files=normal",
+            // A submodule's own config could define filters that `status`
+            // would run (has_local_filters only checks the superproject).
+            "--ignore-submodules=all",
         ],
     )
     .map(|out| parse(&out))
@@ -396,6 +399,9 @@ fn status_of(path: &str) -> Result<String, &'static str> {
             "--porcelain=v2",
             "--branch",
             "--untracked-files=normal",
+            // A submodule's own config could define filters that `status`
+            // would run (has_local_filters only checks the superproject).
+            "--ignore-submodules=all",
         ],
     )
     .ok_or("failed")
@@ -672,6 +678,29 @@ mod tests {
             1,
             "normal repos get full status"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn submodule_filter_never_runs() {
+        use std::process::Command;
+        let dir = std::env::temp_dir().join(format!("toranj-git-sub-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let sh = |cmd: &str| {
+            assert!(
+                Command::new("sh").arg("-c").arg(cmd).current_dir(&dir).status().unwrap().success(),
+                "{cmd}"
+            )
+        };
+        let id = "-c user.email=t@t -c user.name=t";
+        sh(&format!("git init -q -b main src && cd src && echo 'a.txt filter=evil' > .gitattributes && echo hi > a.txt && git add -A && git {id} commit -qm s"));
+        sh(&format!("git init -q -b main top && cd top && git -c protocol.file.allow=always submodule -q add ../src sub && git {id} commit -qm t"));
+        sh("cd top/sub && git config filter.evil.clean 'sh -c \"touch PWNED; cat\"' && touch a.txt");
+        let path = dir.join("top").to_string_lossy().into_owned();
+        assert!(read(&path).is_some());
+        assert!(status_of(&path).is_ok());
+        assert!(!dir.join("top/sub/PWNED").exists(), "a submodule's filter must not run");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
