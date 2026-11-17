@@ -428,7 +428,7 @@ dialog.set { width: min(480px, 92vw); }
 .proj.ws:hover .wgrid, .wgrid:focus-visible { opacity: 1; }
 .wgrid:hover { color: var(--fg); background: var(--line); }
 /* Dragging a project onto another to group them. */
-.proj[data-proj] { cursor: grab; }
+.proj[data-proj] { cursor: pointer; }
 body.dragging, body.dragging * { cursor: grabbing !important; }
 .proj.drag-src { opacity: .35; }
 .proj.merge-hover { background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: 8px; }
@@ -447,7 +447,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 #tabs > .drop-before::after, #tabs > .drop-after::after { content: ""; position: absolute; left: 8px; right: 8px; height: 2px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); pointer-events: none; z-index: 3; }
 #tabs > .drop-before::after { top: -1px; } #tabs > .drop-after::after { bottom: -1px; }
 .sess.drag-src { opacity: .35; }
-.proj.ws { cursor: grab; }
+.proj.ws { cursor: pointer; }
 .proj-item.wsf span em { font-style: normal; font-size: 11px; color: var(--accent); margin-left: 4px; }
 /* A group in the sidebar: one tinted, rounded box around its rows. */
 #tabs > .wsbox { margin-inline: 6px; width: calc(100% - 12px); background: color-mix(in srgb, var(--accent) 10%, var(--rail)); }
@@ -468,3 +468,4 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .ov-group { cursor: pointer; transition: border-color .12s, background .12s; }
 .ov-group:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
 .ov-group .ov-card { cursor: pointer; }
+.proj[data-proj]:hover:not(.ws) .pn { color: var(--fg); }
