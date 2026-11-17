@@ -14,7 +14,7 @@ interface External { name: string; cwd: string; state: State; detail: string; ti
 interface Git { branch: string; changed: number; ahead: number; behind: number }
 interface Snapshot { tabs: Tab[]; external: External[]; git: Record<string, Git> }
 /** A project folder, or (`count` set) a folder holding several of them. */
-interface Project { name: string; path: string; count?: number }
+interface Project { name: string; path: string; count?: number; folders?: string[] }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const LABEL: Record<State, string> = { running: "running", waiting: "waiting for you", idle: "idle", done: "done", error: "error" };
@@ -2134,6 +2134,7 @@ async function openNew(pre?: Project) {
   $("new-err").hidden = true;
   $<HTMLInputElement>("proj-filter").value = "";
   if (!projects.length) projects = await invoke<Project[]>("list_projects");
+  void loadDialogWorkspaces();
   if (pre) {
     const path = pre.path;
     const known = projects.find((p) => p.path === path);
@@ -2148,6 +2149,41 @@ async function openNew(pre?: Project) {
     $("proj-list").querySelector(".proj-item.on")?.scrollIntoView({ block: "nearest" });
     $("new-ok").focus();
   } else $("proj-filter").focus();
+}
+
+/** VS Code *.code-workspace files next to the known projects: a terminal from
+ * one opens in its first folder and gives the agent exactly its folders. */
+let dialogWs: Project[] = [];
+async function loadDialogWorkspaces() {
+  let files: WsFile[];
+  try {
+    files = await invoke<WsFile[]>("workspace_files", { paths: projects.filter((p) => !p.count).map((p) => p.path) });
+  } catch { return; }
+  const next = files.map((w) => {
+    const folders = [...new Set(w.folders)];
+    return { name: w.name, path: w.file, count: folders.length, folders };
+  }).filter((w) => w.count >= 2);
+  if (JSON.stringify(next) === JSON.stringify(dialogWs)) return;
+  dialogWs = next;
+  if ($<HTMLDialogElement>("new-dlg").open) drawProjects($<HTMLInputElement>("proj-filter").value);
+}
+
+/** `to` relative to `from` (both absolute), for short --add-dir arguments. */
+function relPath(from: string, to: string): string {
+  const a = from.split("/").filter(Boolean);
+  const b = to.split("/").filter(Boolean);
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  const up = a.length - i;
+  if (i < 3 || up > 3) return to; // nothing useful in common: keep it absolute
+  return [...Array(up).fill(".."), ...b.slice(i)].join("/") || ".";
+}
+
+/** The command for a workspace entry: claude gets every other folder as --add-dir. */
+function workspaceCommand(cmd: string, folders: string[]): string {
+  if (cmd.split(/\s+/)[0] !== "claude") return cmd;
+  const [first, ...rest] = folders;
+  return [cmd, ...rest.map((f) => `--add-dir ${shq(relPath(first, f))}`)].join(" ");
 }
 
 /** Folders that hold two or more projects (e.g. an app, its backend and its
@@ -2168,7 +2204,7 @@ function drawProjects(f: string) {
   const list = $("proj-list");
   list.replaceChildren();
   const q = f.toLowerCase();
-  const all = [...workspaceFolders(), ...projects.filter((p) => !p.count)];
+  const all = [...workspaceFolders(), ...dialogWs, ...projects.filter((p) => !p.count)];
   // Keep the picked entry's identity across redraws (workspace entries are rebuilt).
   if (picked?.count) picked = all.find((p) => p.path === picked!.path) ?? picked;
   const hits = all.filter((p) => p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q))
@@ -2184,9 +2220,14 @@ function drawProjects(f: string) {
     nm.textContent = p.name;
     if (p.count) {
       const tag = document.createElement("em");
-      tag.textContent = `whole workspace · ${p.count} projects`;
+      if (p.folders) {
+        tag.textContent = `VS Code workspace · ${p.count} projects`;
+        b.title = `Opens in ${p.folders[0].split("/").pop()}; claude also gets the other folders (--add-dir):\n${p.folders.map((f) => f.replace(/^\/Users\/[^/]+/, "~")).join("\n")}`;
+      } else {
+        tag.textContent = `whole folder · ${p.count} projects`;
+        b.title = "Opens the terminal in this folder, so the agent sees every project in it";
+      }
       nm.append(" ", tag);
-      b.title = "Opens the terminal in this folder, so the agent sees all its projects";
     }
     b.append(nm);
     const s = document.createElement("small");
@@ -2209,7 +2250,11 @@ $("new-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!picked) { $("new-err").textContent = "Choose a project."; $("new-err").hidden = false; return; }
   try {
-    const name = await invoke<string>("create_tab", { project: picked.path, cwd: picked.path, command: $<HTMLInputElement>("cmd").value.trim() });
+    const cmd = $<HTMLInputElement>("cmd").value.trim();
+    const ws = picked.folders;
+    const name = ws
+      ? await invoke<string>("create_tab", { project: ws[0], cwd: ws[0], command: workspaceCommand(cmd, ws) })
+      : await invoke<string>("create_tab", { project: picked.path, cwd: picked.path, command: cmd });
     $<HTMLDialogElement>("new-dlg").close();
     await refresh();
     open(name);
