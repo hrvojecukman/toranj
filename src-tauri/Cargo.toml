@@ -1,6 +1,6 @@
 [package]
 name = "toranj"
-version = "0.1.0"
+version = "0.1.1"
 description = "One window for all your coding agents"
 authors = ["Hrvoje Cukman"]
 license = "MIT"
