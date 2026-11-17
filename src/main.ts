@@ -13,7 +13,8 @@ interface Tab { name: string; project: string; cwd: string; agent: string; state
 interface External { name: string; cwd: string; state: State; detail: string; title: string; session_id: string; background: boolean; unlisted: boolean; pid: number }
 interface Git { branch: string; changed: number; ahead: number; behind: number }
 interface Snapshot { tabs: Tab[]; external: External[]; git: Record<string, Git> }
-interface Project { name: string; path: string }
+/** A project folder, or (`count` set) a folder holding several of them. */
+interface Project { name: string; path: string; count?: number }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const LABEL: Record<State, string> = { running: "running", waiting: "waiting for you", idle: "idle", done: "done", error: "error" };
@@ -484,6 +485,12 @@ function workspacesFor(keys: string[]): Map<string, Ws> {
     const set = org.ws[k];
     if (set === "-") continue;
     if (set) { raw.set(k, set); continue; }
+    // A terminal opened on the folder of a group's projects joins that group.
+    if (keys.some((o) => o !== k && o.replace(/\/[^/]+\/?$/, "") === k) && !GENERIC_DIRS.has((k.split("/").pop() ?? "").toLowerCase())) {
+      raw.set(k, `dir:${k}`);
+      auto.set(`dir:${k}`, k.split("/").pop() ?? k);
+      continue;
+    }
     const f = wsFiles.find((w) => w.folders.some((d) => k === d || k.startsWith(d + "/")));
     if (f) { raw.set(k, `code:${f.file}`); auto.set(`code:${f.file}`, f.name); continue; }
     const parts = k.split("/").filter(Boolean);
@@ -508,7 +515,10 @@ function workspacesFor(keys: string[]): Map<string, Ws> {
 
 /** A project's name inside its workspace: the folder alone, unless renamed. */
 function leafLabel(p: string) {
-  return org.names[p] || p.split("/").filter(Boolean).pop() || p;
+  if (org.names[p]) return org.names[p];
+  // The group's own folder: a terminal with all its projects.
+  if (wsNow.get(p)?.id === `dir:${p}`) return "All projects";
+  return p.split("/").filter(Boolean).pop() || p;
 }
 
 /** Asks for a line of text; resolves null on cancel. */
@@ -2078,18 +2088,44 @@ async function openNew(pre?: Project) {
   } else $("proj-filter").focus();
 }
 
+/** Folders that hold two or more projects (e.g. an app, its backend and its
+ * website): a terminal there gives an agent all of them at once. */
+function workspaceFolders(): Project[] {
+  const by = new Map<string, number>();
+  for (const p of projects) {
+    if (p.count) continue;
+    const parent = p.path.replace(/\/[^/]+\/?$/, "");
+    const name = parent.split("/").pop() ?? "";
+    if (parent.split("/").filter(Boolean).length < 3 || GENERIC_DIRS.has(name.toLowerCase())) continue;
+    by.set(parent, (by.get(parent) ?? 0) + 1);
+  }
+  return [...by].filter(([, n]) => n >= 2).map(([path, count]) => ({ name: path.split("/").pop() ?? path, path, count }));
+}
+
 function drawProjects(f: string) {
   const list = $("proj-list");
   list.replaceChildren();
   const q = f.toLowerCase();
-  const hits = projects.filter((p) => p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q)).slice(0, 80);
+  const all = [...workspaceFolders(), ...projects.filter((p) => !p.count)];
+  // Keep the picked entry's identity across redraws (workspace entries are rebuilt).
+  if (picked?.count) picked = all.find((p) => p.path === picked!.path) ?? picked;
+  const hits = all.filter((p) => p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q))
+    // A workspace right above its projects.
+    .sort((a, b) => a.path.localeCompare(b.path) || (b.count ?? 0) - (a.count ?? 0))
+    .slice(0, 80);
   if (q && hits.length && !hits.includes(picked!)) picked = hits[0];
   for (const p of hits) {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "proj-item" + (p === picked ? " on" : "");
+    b.className = "proj-item" + (p.count ? " wsf" : "") + (p === picked ? " on" : "");
     const nm = document.createElement("span");
     nm.textContent = p.name;
+    if (p.count) {
+      const tag = document.createElement("em");
+      tag.textContent = `whole workspace · ${p.count} projects`;
+      nm.append(" ", tag);
+      b.title = "Opens the terminal in this folder, so the agent sees all its projects";
+    }
     b.append(nm);
     const s = document.createElement("small");
     s.textContent = p.path.replace(/^\/Users\/[^/]+/, "~");

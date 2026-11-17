@@ -112,7 +112,11 @@ export async function installMock() {
     window.dispatchEvent(new PointerEvent("pointermove", { buttons: 1, clientX: rb.left + 60, clientY: rb.top - 20 }));
     window.dispatchEvent(new PointerEvent("pointermove", { buttons: 1, clientX: ra.left + 60, clientY: ra.top + 2 }));
   }, 1300);
-  if (params.has("dialog")) setTimeout(() => document.getElementById("new-btn")?.click(), 400);
+  if (params.has("dialog")) setTimeout(() => {
+    document.getElementById("new-btn")?.click();
+    const f = params.get("dialog");
+    if (f) setTimeout(() => { const i = document.getElementById("proj-filter") as HTMLInputElement; i.value = f; i.dispatchEvent(new Event("input")); }, 300);
+  }, 400);
 }
 
 // ?git / ?git=clean: sample data for the Git panel.
