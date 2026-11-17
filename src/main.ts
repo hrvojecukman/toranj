@@ -486,7 +486,8 @@ function workspacesFor(keys: string[]): Map<string, Ws> {
     if (set === "-") continue;
     if (set) { raw.set(k, set); continue; }
     // A terminal opened on the folder of a group's projects joins that group.
-    if (keys.some((o) => o !== k && o.replace(/\/[^/]+\/?$/, "") === k) && !GENERIC_DIRS.has((k.split("/").pop() ?? "").toLowerCase())) {
+    const inCodeWs = wsFiles.some((w) => w.folders.some((d) => k === d || k.startsWith(d + "/")));
+    if (!inCodeWs && k.split("/").filter(Boolean).length >= 3 && keys.some((o) => o !== k && o.replace(/\/[^/]+\/?$/, "") === k) && !GENERIC_DIRS.has((k.split("/").pop() ?? "").toLowerCase())) {
       raw.set(k, `dir:${k}`);
       auto.set(`dir:${k}`, k.split("/").pop() ?? k);
       continue;
@@ -574,7 +575,7 @@ function projectMenu(e: MouseEvent, proj: string) {
   const items: [string, () => void, string?][] = [
     ["New terminal here", () => openNew({ name: projectLabel(proj), path: proj })],
     ["Rename project…", async () => {
-      const v = await promptText("Rename project", leafLabel(proj), "Only the name shown in Toranj. Leave it empty for the folder's name.");
+      const v = await promptText("Rename project", org.names[proj] || proj.split("/").filter(Boolean).pop() || proj, "Only the name shown in Toranj. Leave it empty for the folder's name.");
       if (v === null) return;
       if (v) org.names[proj] = v; else delete org.names[proj];
       saveOrg();
