@@ -20,7 +20,9 @@ for v in APPLE_SIGNING_IDENTITY APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PAT
 done
 
 version="$(sed -n 's/^ *"version": *"\([^"]*\)".*/\1/p' src-tauri/tauri.conf.json | head -1)"
-arch="$(uname -m | sed 's/arm64/aarch64/')"
+# The Rust host target, as in build-hook.sh (uname -m lies under Rosetta).
+command -v rustc >/dev/null 2>&1 || PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
+arch="$(rustc -vV | sed -n 's/^host: \([^-]*\)-.*/\1/p')"
 echo "Building Toranj $version ($arch)…"
 
 sh scripts/build-hook.sh release
