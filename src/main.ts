@@ -1169,6 +1169,18 @@ function render() {
         h.className = "proj" + (inWs ? " in-ws" : "") + dragClass(`p:${proj}`);
         h.dataset.proj = proj;
         h.onpointerdown = (e) => startSidebarDrag(e, `p:${proj}`);
+        // Clicking a project opens it: inside a group, the group's grid.
+        h.onclick = (e) => {
+          if ((e.target as HTMLElement).closest(".branch, button")) return;
+          const first = snap.tabs.find((t) => groupKey(t) === proj && !closing.has(t.name));
+          if (!first) return;
+          if (wsNow.get(proj)) {
+            const key = viewKey(first);
+            const p = prefsFor(key);
+            if (p.layout === "single") savePrefs(key, { ...p, layout: p.multi });
+          }
+          open(first.name);
+        };
         h.title = `${proj}\nRight-click to rename or move to a workspace`;
         setText(h, ".pn", inWs ? leafLabel(proj) : projectLabel(proj));
         h.oncontextmenu = (e) => projectMenu(e, proj);
@@ -1520,7 +1532,7 @@ function renderOverview() {
     const inner = members.map(([, j]) => cardHtml[j]).join("");
     if (!inner) return "";
     const n = members.reduce((s, [q]) => s + q.tabs.length, 0);
-    return `<div class="ov-group">
+    return `<div class="ov-group" data-ovgroup="${escapeHtml(w.id)}" title="Show all its terminals together">
       <button class="ov-ghead" data-ovws="${escapeHtml(w.id)}" title="Show all its terminals together">
         <i aria-hidden="true">▦</i><b>${escapeHtml(w.label)}</b><span>${plural(members.length, "project", "projects")} · ${plural(n, "terminal", "terminals")}</span>
       </button>
@@ -1540,8 +1552,14 @@ function renderOverview() {
     </div>
     <div class="ov-grid">${cards}</div>`;
   box.querySelectorAll<HTMLElement>("[data-icon]").forEach((el) => paintIcon(el, list[Number(el.dataset.icon)].key));
-  box.querySelectorAll<HTMLButtonElement>("[data-ovws]").forEach((b) => b.addEventListener("click", () => {
-    showWorkspaceGrid(snap.tabs.filter((t) => wsNow.get(groupKey(t))?.id === b.dataset.ovws));
+  const showGroup = (id: string) => showWorkspaceGrid(snap.tabs.filter((t) => wsNow.get(groupKey(t))?.id === id));
+  box.querySelectorAll<HTMLButtonElement>("[data-ovws]").forEach((b) => b.addEventListener("click", () => showGroup(b.dataset.ovws!)));
+  // Anywhere in a group's box opens the group; its cards and buttons keep
+  // their own actions (a card opens its terminal, inside the group's grid).
+  box.querySelectorAll<HTMLElement>("[data-ovgroup]").forEach((g) => g.addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest("button, a, .ov-card") || getSelection()?.toString()) return;
+    showGroup(g.dataset.ovgroup!);
   }));
   box.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((b) => b.addEventListener("click", () => open(b.dataset.tab!)));
   box.querySelectorAll<HTMLButtonElement>("[data-ext-move]").forEach((b) => b.addEventListener("click", () => {
