@@ -599,6 +599,9 @@ function projectMenu(e: MouseEvent, proj: string) {
   }]);
   if (mine) items.push([`Take out of ${mine.label}`, () => { org.ws[proj] = "-"; saveOrg(); }]);
   if (org.ws[proj] !== undefined) items.push(["Group automatically", () => { delete org.ws[proj]; saveOrg(); }]);
+  const mineTabs = snap.tabs.filter((t) => groupKey(t) === proj && !closing.has(t.name));
+  if (mineTabs.length === 1) items.push(["Close terminal…", () => askClose(mineTabs[0].name), "danger"]);
+  else if (mineTabs.length > 1) items.push([`Close all ${mineTabs.length} terminals…`, () => askCloseAll(mineTabs.map((t) => t.name), projectLabel(proj)), "danger"]);
   showMenu(e, items);
 }
 
@@ -608,6 +611,7 @@ function workspaceMenu(e: MouseEvent, ws: Ws, projs: string[]) {
     [shut ? "Expand" : "Collapse", () => toggleWs(ws.id)],
     ["Rename workspace…", () => renameWorkspace(ws)],
     ["Ungroup", () => { for (const p of projs) org.ws[p] = "-"; saveOrg(); }],
+    ["Close all terminals in group…", () => askCloseAll(snap.tabs.filter((t) => projs.includes(groupKey(t))).map((t) => t.name), ws.label), "danger"],
   ]);
 }
 
@@ -2339,6 +2343,42 @@ function askClose(name: string) {
       if (current) open(current); else render();
       if (failed) showCloseError(failed);
     }
+  };
+  dlg.showModal();
+}
+
+/** Asks before closing several terminals at once (a project's or a group's). */
+function askCloseAll(names: string[], where: string) {
+  const tabs = snap.tabs.filter((t) => names.includes(t.name) && !closing.has(t.name));
+  if (!tabs.length || $<HTMLDialogElement>("kill-dlg").open) return;
+  if (tabs.length === 1) { askClose(tabs[0].name); return; }
+  const busy = tabs.filter((t) => t.state === "running").length;
+  const bg = tabs.filter((t) => t.background).length;
+  $("kill-msg").textContent = [
+    `This closes ${tabs.length} terminals in ${where}: ${tabs.map((t) => t.title || t.agent).join(", ")}.`,
+    busy ? (busy === 1 ? "One of them is still working; closing ends it." : `${busy} of them are still working; closing ends them.`) : "",
+    bg ? "Background Claude sessions keep running and return under “Outside Toranj”." : "",
+  ].filter(Boolean).join(" ");
+  $("kill-ok").textContent = `Close ${tabs.length} terminals`;
+  $("kill-ok").className = "btn danger";
+  $("kill-ok").hidden = false;
+  $("kill-stop").hidden = true;
+  const dlg = $<HTMLDialogElement>("kill-dlg");
+  dlg.returnValue = "";
+  dlg.onclose = async () => {
+    if (dlg.returnValue !== "yes") { panes.get(current ?? "")?.term.focus(); return; }
+    for (const t of tabs) {
+      closing.add(t.name);
+      panes.get(t.name)?.dispose();
+      panes.delete(t.name);
+    }
+    if (current && tabs.some((t) => t.name === current)) current = [...panes.keys()][0] ?? null;
+    const failed: string[] = [];
+    await Promise.all(tabs.map((t) => invoke("kill_tab", { name: t.name, stopSession: false }).catch((e) => { failed.push(String(e)); })));
+    await refresh();
+    for (const t of tabs) closing.delete(t.name);
+    if (current) open(current); else render();
+    if (failed.length) showCloseError(failed[0]);
   };
   dlg.showModal();
 }

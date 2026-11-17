@@ -11,6 +11,7 @@ All notable changes to Toranj. The format follows [Keep a Changelog](https://kee
 - On launch, Toranj opens the terminal you last had on screen, or the Overview, instead of the first project by name.
 
 ### Added
+- Close a project's terminals (or a whole group's) from its right-click menu.
 - New terminal can open a whole workspace: a folder holding several projects (e.g. an app, its backend and website) is offered as "<folder> · whole workspace · N projects", so the agent gets all of them as context. In the sidebar it joins the folder's group as "All projects".
 
 ## [0.1.0] - 2026-11-17
