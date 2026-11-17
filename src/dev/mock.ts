@@ -91,6 +91,15 @@ export async function installMock() {
     const f = params.get("ov");
     if (f) setTimeout(() => document.querySelector<HTMLButtonElement>(`#overview [data-f="${f}"]`)?.click(), 100);
   }, 900);
+  // ?resize: drag the first vertical pane divider to 70 %.
+  if (params.has("resize")) setTimeout(() => {
+    const g = document.querySelector<HTMLElement>("#grid .gut.v");
+    const r = (g?.parentElement ?? document.getElementById("grid")!).getBoundingClientRect();
+    if (!g) return;
+    g.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 1 }));
+    g.dispatchEvent(new PointerEvent("pointermove", { clientX: r.left + r.width * 0.7, clientY: r.top + 50, pointerId: 1 }));
+    g.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
+  }, 2600);
   if (params.has("wsgrid")) setTimeout(() => document.querySelector<HTMLButtonElement>("#tabs .wgrid")?.click(), 1400);
   // ?pdrag: hold the 2nd project over the 3rd (screenshot of the "Group" state).
   if (params.has("pdrag")) setTimeout(() => {

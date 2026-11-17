@@ -14,7 +14,7 @@ interface External { name: string; cwd: string; state: State; detail: string; ti
 interface Git { branch: string; changed: number; ahead: number; behind: number }
 interface Snapshot { tabs: Tab[]; external: External[]; git: Record<string, Git> }
 /** A project folder, or (`count` set) a folder holding several of them. */
-interface Project { name: string; path: string; count?: number }
+interface Project { name: string; path: string; count?: number; folders?: string[] }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const LABEL: Record<State, string> = { running: "running", waiting: "waiting for you", idle: "idle", done: "done", error: "error" };
@@ -26,7 +26,9 @@ const SHORT: Record<State, string> = { running: "", waiting: "waiting", idle: ""
 // Hidden tabs have neither: they cost nothing but their tmux session.
 
 type Layout = "single" | "grid" | "cols" | "rows";
-interface ViewPrefs { layout: Layout; multi: Exclude<Layout, "single">; order: string[] }
+/** Pane sizes per layout shape: row heights, and each row's pane widths. */
+interface TrackSizes { r: number[]; c: number[][] }
+interface ViewPrefs { layout: Layout; multi: Exclude<Layout, "single">; order: string[]; sizes?: Record<string, TrackSizes> }
 
 const termOptions = {
   fontFamily: '"SF Mono", Menlo, monospace',
@@ -261,25 +263,120 @@ function layoutPanes() {
 
   for (const [name, p] of panes) if (!names.includes(name)) { p.dispose(); panes.delete(name); }
 
-  const { cols, rows } = gridShape(layout, Math.max(1, names.length));
-  grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
-  grid.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+  const { cols } = gridShape(layout, Math.max(1, names.length));
+  // Rows of panes; each row sizes its own panes (no shared columns), so a
+  // short last row just shares its width.
+  const rowNames: string[][] = [];
+  for (let i = 0; i < names.length; i += cols) rowNames.push(names.slice(i, i + cols));
+  const vkey = cur ? viewKey(cur) : "";
+  const shape = `${layout}:${rowNames.map((r) => r.length).join("-")}`;
+  const saved = cur ? prefsFor(vkey).sizes?.[shape] : undefined;
+  const ok = (v: unknown, n: number): v is number[] => Array.isArray(v) && v.length === n && v.every((x) => typeof x === "number" && x > 0);
+  const sizes: TrackSizes = {
+    r: ok(saved?.r, rowNames.length) ? [...saved!.r] : rowNames.map(() => 1),
+    c: rowNames.map((row, i) => (Array.isArray(saved?.c) && ok(saved!.c[i], row.length) ? [...saved!.c[i]] : row.map(() => 1))),
+  };
   grid.classList.toggle("multi", names.length > 1);
 
   const fresh: Pane[] = [];
-  names.forEach((name, i) => {
+  for (const name of names) {
     let p = panes.get(name);
     if (!p) { p = new Pane(name, grid); panes.set(name, p); fresh.push(p); paneDone.delete(name); }
-    if (grid.children[i] !== p.el) grid.insertBefore(p.el, grid.children[i] ?? null);
-    // The last pane fills the empty cells of an incomplete last row.
-    const spare = cols * rows - names.length;
-    p.el.style.gridColumn = i === names.length - 1 && spare > 0 && layout === "grid" ? `span ${spare + 1}` : "";
-  });
+  }
+  buildRows(grid, rowNames, sizes, vkey, shape);
   for (const p of fresh) {
     doneMarks.delete(p.name); // a visible tab counts as seen
     p.attach();
   }
+  // Re-measure every terminal once the new layout has settled.
+  requestAnimationFrame(() => { for (const p of panes.values()) p.refit(); });
   paintPanes();
+}
+
+/** Lays the panes out in rows, with dividers between panes and between rows:
+ * drag a divider to resize, double-click it to even out. */
+function buildRows(grid: HTMLElement, rowNames: string[][], sizes: TrackSizes, vkey: string, shape: string) {
+  document.body.classList.remove("resizing-c", "resizing-r"); // a drag cut short by a re-layout
+  // Keep the panes, rebuild the rows and dividers around them.
+  for (const el of [...grid.children]) if (el.classList.contains("grow") || el.classList.contains("gut")) {
+    for (const tp of [...el.querySelectorAll<HTMLElement>(".tp")]) grid.append(tp);
+    el.remove();
+  }
+  const save = () => {
+    const p = prefsFor(vkey);
+    savePrefs(vkey, { ...p, sizes: { ...(p.sizes ?? {}), [shape]: { r: [...sizes.r], c: sizes.c.map((c) => [...c]) } } });
+  };
+  const rowEls: HTMLElement[] = [];
+  rowNames.forEach((row, r) => {
+    const rowEl = document.createElement("div");
+    rowEl.className = "grow";
+    rowEl.style.flex = `${sizes.r[r]} 1 0`;
+    row.forEach((name, c) => {
+      const p = panes.get(name)!;
+      p.el.style.flex = `${sizes.c[r][c]} 1 0`;
+      rowEl.append(p.el);
+      if (c < row.length - 1) rowEl.append(divider("v", sizes.c[r], c, () => row.map((n) => panes.get(n)!.el), rowEl));
+    });
+    rowEls.push(rowEl);
+    grid.append(rowEl);
+    if (r < rowNames.length - 1) grid.append(divider("h", sizes.r, r, () => rowEls, grid));
+  });
+
+  function divider(dir: "v" | "h", t: number[], i: number, items: () => HTMLElement[], box: HTMLElement): HTMLElement {
+    const g = document.createElement("div");
+    g.className = `gut ${dir}`;
+    g.title = "Drag to resize · double-click to even out";
+    const apply = () => items().forEach((el, k) => { if (t[k] !== undefined) el.style.flex = `${t[k]} 1 0`; });
+    g.onpointerdown = (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try { g.setPointerCapture(e.pointerId); } catch { /* synthetic events */ }
+      const rect = box.getBoundingClientRect();
+      const span = dir === "v" ? rect.width : rect.height;
+      const total = t.reduce((a, b) => a + b, 0);
+      const before = t.slice(0, i).reduce((a, b) => a + b, 0);
+      const pair = t[i] + t[i + 1];
+      const min = Math.min(pair / 2, total * (120 / span)); // panes keep ~120 px
+      document.body.classList.add(dir === "v" ? "resizing-c" : "resizing-r");
+      let raf = 0;
+      let snapped = false;
+      const snapWithin = total * (14 / span); // ~14 px either side of an even split
+      g.onpointermove = (ev) => {
+        const pos = ((dir === "v" ? ev.clientX - rect.left : ev.clientY - rect.top) / span) * total;
+        let left = Math.max(min, Math.min(pair - min, pos - before));
+        // An even split between the two holds for a moment, with a tap on
+        // the trackpad, so 50 % is easy to hit.
+        const snap = Math.abs(left - pair / 2) < snapWithin;
+        if (snap) left = pair / 2;
+        if (snap && !snapped) invoke("haptic").catch(() => {});
+        snapped = snap;
+        g.classList.toggle("snap", snap);
+        t[i] = left;
+        t[i + 1] = pair - left;
+        if (!raf) raf = requestAnimationFrame(() => { raf = 0; apply(); });
+      };
+      const done = () => {
+        g.classList.remove("snap");
+        g.onpointermove = null;
+        g.onpointerup = null;
+        g.onpointercancel = null;
+        document.body.classList.remove("resizing-c", "resizing-r");
+        apply();
+        save();
+        requestAnimationFrame(() => { for (const p of panes.values()) p.refit(); });
+      };
+      g.onpointerup = done;
+      g.onpointercancel = done;
+    };
+    g.ondblclick = () => {
+      t.fill(1);
+      apply();
+      save();
+      requestAnimationFrame(() => { for (const p of panes.values()) p.refit(); });
+    };
+    return g;
+  }
 }
 
 /** Panes on screen that finished since you last clicked or typed in them. */
@@ -317,6 +414,7 @@ function sidebarNumber(name: string) {
 function focusTab(name: string) {
   paneDone.delete(name);
   if (current === name) { paintPanes(); return; }
+  rememberView(name);
   current = name;
   doneMarks.delete(name);
   const tab = snap.tabs.find((t) => t.name === name);
@@ -336,8 +434,14 @@ function flashProject(proj: string) {
   f.classList.add("go");
 }
 
+/** What was on screen, so a restart comes back to it ("" = the overview). */
+function rememberView(tab: string) {
+  try { localStorage.setItem("toranj.view", tab); } catch { /* convenience only */ }
+}
+
 function open(name: string) {
   overview = false;
+  rememberView(name);
   const tab = snap.tabs.find((t) => t.name === name);
   if (tab) {
     const p = groupKey(tab);
@@ -592,6 +696,9 @@ function projectMenu(e: MouseEvent, proj: string) {
   }]);
   if (mine) items.push([`Take out of ${mine.label}`, () => { org.ws[proj] = "-"; saveOrg(); }]);
   if (org.ws[proj] !== undefined) items.push(["Group automatically", () => { delete org.ws[proj]; saveOrg(); }]);
+  const mineTabs = snap.tabs.filter((t) => groupKey(t) === proj && !closing.has(t.name));
+  if (mineTabs.length === 1) items.push(["Close terminal…", () => askClose(mineTabs[0].name), "danger"]);
+  else if (mineTabs.length > 1) items.push([`Close all ${mineTabs.length} terminals…`, () => askCloseAll(mineTabs.map((t) => t.name), projectLabel(proj)), "danger"]);
   showMenu(e, items);
 }
 
@@ -601,6 +708,7 @@ function workspaceMenu(e: MouseEvent, ws: Ws, projs: string[]) {
     [shut ? "Expand" : "Collapse", () => toggleWs(ws.id)],
     ["Rename workspace…", () => renameWorkspace(ws)],
     ["Ungroup", () => { for (const p of projs) org.ws[p] = "-"; saveOrg(); }],
+    ["Close all terminals in group…", () => askCloseAll(snap.tabs.filter((t) => projs.includes(groupKey(t))).map((t) => t.name), ws.label), "danger"],
   ]);
 }
 
@@ -1158,6 +1266,18 @@ function render() {
         h.className = "proj" + (inWs ? " in-ws" : "") + dragClass(`p:${proj}`);
         h.dataset.proj = proj;
         h.onpointerdown = (e) => startSidebarDrag(e, `p:${proj}`);
+        // Clicking a project opens it: inside a group, the group's grid.
+        h.onclick = (e) => {
+          if ((e.target as HTMLElement).closest(".branch, button")) return;
+          const first = snap.tabs.find((t) => groupKey(t) === proj && !closing.has(t.name));
+          if (!first) return;
+          if (wsNow.get(proj)) {
+            const key = viewKey(first);
+            const p = prefsFor(key);
+            if (p.layout === "single") savePrefs(key, { ...p, layout: p.multi });
+          }
+          open(first.name);
+        };
         h.title = `${proj}\nRight-click to rename or move to a workspace`;
         setText(h, ".pn", inWs ? leafLabel(proj) : projectLabel(proj));
         h.oncontextmenu = (e) => projectMenu(e, proj);
@@ -1198,6 +1318,15 @@ function render() {
     }
   }
   sync($("tabs"), items);
+  // A group's rows form one box: tinted, rounded at its first and last row.
+  for (const u of sidebarUnits()) {
+    const box = u.key.startsWith("w:");
+    u.rows.forEach((el, i) => {
+      el.classList.toggle("wsbox", box);
+      el.classList.toggle("wsbox-top", box && i === 0);
+      el.classList.toggle("wsbox-end", box && i === u.rows.length - 1);
+    });
+  }
   sendLabels();
 
   const ext: Item[] = [];
@@ -1246,7 +1375,7 @@ function render() {
   }
   // Tabs opened or closed elsewhere join or leave the grid.
   const want = !cur ? [] : prefsFor(viewKey(cur)).layout === "single" ? [cur.name] : groupTabs(cur).map((t) => t.name);
-  const have = [...$("grid").children].map((el) => (el as HTMLElement).dataset.name);
+  const have = [...$("grid").querySelectorAll<HTMLElement>(".tp")].map((el) => el.dataset.name);
   if (want.join("\n") !== have.join("\n")) layoutPanes();
   else paintPanes();
   if (!snap.tabs.length) overview = false;
@@ -1404,6 +1533,7 @@ const ovShown = () => !$("overview").hidden;
 function toggleOverview(show = !ovShown()) {
   if (!show && !current) return; // nothing selected: the overview is the page
   overview = show && snap.tabs.length > 0;
+  if (overview) rememberView("");
   render();
   if (overview) $("overview").focus();
   else panes.get(current ?? "")?.term.focus();
@@ -1433,7 +1563,7 @@ function renderOverview() {
   // details count only where they are shown, so running agents don't churn it.
   const keys = list.map((p) => p.key);
   const extOf = (key: string) => snap.external.filter((e) => extHome(e, keys) === key);
-  const sig = JSON.stringify([ovFilter, list.map((p) => [p.key, p.git, p.tabs.map((t) => [t.name, t.title, t.agent, st(t), st(t) === "waiting" || st(t) === "error" ? t.detail : "", sidebarNumber(t.name)]),
+  const sig = JSON.stringify([ovFilter, list.map((p) => [p.key, wsNow.get(p.key)?.id ?? "", wsNow.get(p.key)?.label ?? "", p.git, p.tabs.map((t) => [t.name, t.title, t.agent, st(t), st(t) === "waiting" || st(t) === "error" ? t.detail : "", sidebarNumber(t.name)]),
     extOf(p.key).map((e) => [e.session_id, e.title, e.name, e.state, e.background, e.unlisted, e.detail])]), snap.external.length]);
   if (sig === ovSig) return;
   ovSig = sig;
@@ -1463,7 +1593,7 @@ function renderOverview() {
 
   const ext = snap.external.length
     ? `<p class="ov-ext"><button class="ov-chip" data-ext title="Show them in the sidebar">${plural(snap.external.length, "Claude session runs", "Claude sessions run")} outside Toranj</button></p>` : "";
-  const cards = list.map((p, i) => {
+  const cardHtml = list.map((p, i) => {
     if (!match(p, ovFilter)) return "";
     const g = p.git;
     const gitBtn = g ? `<button class="btn gitbtn${g.changed || g.ahead ? " dirty" : ""}" data-git="${i}" title="Git details">${escapeHtml(gitText(g))}</button>` : "";
@@ -1486,6 +1616,25 @@ function renderOverview() {
       <div class="ov-tabs">${rows}</div>
       <footer><button class="link" data-new="${i}">+ Terminal</button><button class="link" data-code="${i}">Open in VS Code</button></footer>
     </section>`;
+  });
+  // A group's projects sit together in one box, where its first project
+  // would be (the list is sorted by what needs you).
+  const doneWs = new Set<string>();
+  const cards = list.map((p, i) => {
+    const w = wsNow.get(p.key);
+    if (!w) return cardHtml[i];
+    if (doneWs.has(w.id)) return "";
+    doneWs.add(w.id);
+    const members = list.map((q, j) => [q, j] as const).filter(([q]) => wsNow.get(q.key)?.id === w.id);
+    const inner = members.map(([, j]) => cardHtml[j]).join("");
+    if (!inner) return "";
+    const n = members.reduce((s, [q]) => s + q.tabs.length, 0);
+    return `<div class="ov-group" data-ovgroup="${escapeHtml(w.id)}" title="Show all its terminals together">
+      <button class="ov-ghead" data-ovws="${escapeHtml(w.id)}" title="Show all its terminals together">
+        <i aria-hidden="true">▦</i><b>${escapeHtml(w.label)}</b><span>${plural(members.length, "project", "projects")} · ${plural(n, "terminal", "terminals")}</span>
+      </button>
+      <div class="ov-ggrid">${inner}</div>
+    </div>`;
   }).join("");
 
   const box = $("overview");
@@ -1500,6 +1649,15 @@ function renderOverview() {
     </div>
     <div class="ov-grid">${cards}</div>`;
   box.querySelectorAll<HTMLElement>("[data-icon]").forEach((el) => paintIcon(el, list[Number(el.dataset.icon)].key));
+  const showGroup = (id: string) => showWorkspaceGrid(snap.tabs.filter((t) => wsNow.get(groupKey(t))?.id === id));
+  box.querySelectorAll<HTMLButtonElement>("[data-ovws]").forEach((b) => b.addEventListener("click", () => showGroup(b.dataset.ovws!)));
+  // Anywhere in a group's box opens the group; its cards and buttons keep
+  // their own actions (a card opens its terminal, inside the group's grid).
+  box.querySelectorAll<HTMLElement>("[data-ovgroup]").forEach((g) => g.addEventListener("click", (e) => {
+    const t = e.target as HTMLElement;
+    if (t.closest("button, a, .ov-card") || getSelection()?.toString()) return;
+    showGroup(g.dataset.ovgroup!);
+  }));
   box.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((b) => b.addEventListener("click", () => open(b.dataset.tab!)));
   box.querySelectorAll<HTMLButtonElement>("[data-ext-move]").forEach((b) => b.addEventListener("click", () => {
     const e = snap.external.find((x) => x.session_id === b.dataset.extMove);
@@ -2073,6 +2231,7 @@ async function openNew(pre?: Project) {
   $("new-err").hidden = true;
   $<HTMLInputElement>("proj-filter").value = "";
   if (!projects.length) projects = await invoke<Project[]>("list_projects");
+  void loadDialogWorkspaces();
   if (pre) {
     const path = pre.path;
     const known = projects.find((p) => p.path === path);
@@ -2087,6 +2246,45 @@ async function openNew(pre?: Project) {
     $("proj-list").querySelector(".proj-item.on")?.scrollIntoView({ block: "nearest" });
     $("new-ok").focus();
   } else $("proj-filter").focus();
+}
+
+/** VS Code *.code-workspace files next to the known projects: a terminal from
+ * one opens in its first folder and gives the agent exactly its folders. */
+let dialogWs: Project[] = [];
+async function loadDialogWorkspaces() {
+  let files: WsFile[];
+  try {
+    files = await invoke<WsFile[]>("workspace_files", { paths: projects.filter((p) => !p.count).map((p) => p.path) });
+  } catch { return; }
+  const next = files.map((w) => {
+    const folders = [...new Set(w.folders)];
+    return { name: w.name, path: w.file, count: folders.length, folders };
+  }).filter((w) => w.count >= 2);
+  if (JSON.stringify(next) === JSON.stringify(dialogWs)) return;
+  dialogWs = next;
+  if ($<HTMLDialogElement>("new-dlg").open) drawProjects($<HTMLInputElement>("proj-filter").value);
+}
+
+/** `to` relative to `from` (both absolute), for short --add-dir arguments. */
+function relPath(from: string, to: string): string {
+  const a = from.split("/").filter(Boolean);
+  const b = to.split("/").filter(Boolean);
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  const up = a.length - i;
+  if (i < 3 || up > 3) return to; // nothing useful in common: keep it absolute
+  const r = [...Array(up).fill(".."), ...b.slice(i)].join("/") || ".";
+  // Never a bare name that could start with "-" and read as an option.
+  return r.startsWith("..") || r === "." ? r : `./${r}`;
+}
+
+/** The command for a workspace entry: claude gets every other folder as --add-dir. */
+function workspaceCommand(cmd: string, folders: string[]): string {
+  if (cmd.split(/\s+/)[0] !== "claude") return cmd;
+  // Typed into a shell: no control characters or backslashes, ever.
+  if (folders.some((f) => /[\u0000-\u001f\u007f\\]/.test(f))) return cmd;
+  const [first, ...rest] = folders;
+  return [cmd, ...rest.map((f) => `--add-dir ${shq(relPath(first, f))}`)].join(" ");
 }
 
 /** Folders that hold two or more projects (e.g. an app, its backend and its
@@ -2107,7 +2305,7 @@ function drawProjects(f: string) {
   const list = $("proj-list");
   list.replaceChildren();
   const q = f.toLowerCase();
-  const all = [...workspaceFolders(), ...projects.filter((p) => !p.count)];
+  const all = [...workspaceFolders(), ...dialogWs, ...projects.filter((p) => !p.count)];
   // Keep the picked entry's identity across redraws (workspace entries are rebuilt).
   if (picked?.count) picked = all.find((p) => p.path === picked!.path) ?? picked;
   const hits = all.filter((p) => p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q))
@@ -2123,14 +2321,26 @@ function drawProjects(f: string) {
     nm.textContent = p.name;
     if (p.count) {
       const tag = document.createElement("em");
-      tag.textContent = `whole workspace · ${p.count} projects`;
+      if (p.folders) {
+        tag.textContent = `VS Code workspace · ${p.count} projects`;
+        b.title = `Opens in ${p.folders[0].split("/").pop()}; claude also gets the other folders (--add-dir):\n${p.folders.map((f) => f.replace(/^\/Users\/[^/]+/, "~")).join("\n")}`;
+      } else {
+        tag.textContent = `whole folder · ${p.count} projects`;
+        b.title = "Opens the terminal in this folder, so the agent sees every project in it";
+      }
       nm.append(" ", tag);
-      b.title = "Opens the terminal in this folder, so the agent sees all its projects";
     }
     b.append(nm);
     const s = document.createElement("small");
     s.textContent = p.path.replace(/^\/Users\/[^/]+/, "~");
     b.append(s);
+    // What the agent will be able to read, in plain sight.
+    if (p.folders) {
+      const f = document.createElement("small");
+      f.className = "wsfolders";
+      f.textContent = `folders: ${[...new Set(p.folders.map((x) => x.replace(/^\/Users\/[^/]+/, "~")))].join(", ")}`;
+      b.append(f);
+    }
     b.onclick = () => { picked = p; drawProjects($<HTMLInputElement>("proj-filter").value); };
     list.append(b);
   }
@@ -2148,7 +2358,11 @@ $("new-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!picked) { $("new-err").textContent = "Choose a project."; $("new-err").hidden = false; return; }
   try {
-    const name = await invoke<string>("create_tab", { project: picked.path, cwd: picked.path, command: $<HTMLInputElement>("cmd").value.trim() });
+    const cmd = $<HTMLInputElement>("cmd").value.trim();
+    const ws = picked.folders;
+    const name = ws
+      ? await invoke<string>("create_tab", { project: ws[0], cwd: ws[0], command: workspaceCommand(cmd, ws) })
+      : await invoke<string>("create_tab", { project: picked.path, cwd: picked.path, command: cmd });
     $<HTMLDialogElement>("new-dlg").close();
     await refresh();
     open(name);
@@ -2331,6 +2545,42 @@ function askClose(name: string) {
       if (current) open(current); else render();
       if (failed) showCloseError(failed);
     }
+  };
+  dlg.showModal();
+}
+
+/** Asks before closing several terminals at once (a project's or a group's). */
+function askCloseAll(names: string[], where: string) {
+  const tabs = snap.tabs.filter((t) => names.includes(t.name) && !closing.has(t.name));
+  if (!tabs.length || $<HTMLDialogElement>("kill-dlg").open) return;
+  if (tabs.length === 1) { askClose(tabs[0].name); return; }
+  const busy = tabs.filter((t) => t.state === "running").length;
+  const bg = tabs.filter((t) => t.background).length;
+  $("kill-msg").textContent = [
+    `This closes ${tabs.length} terminals in ${where}: ${tabs.map((t) => t.title || t.agent).join(", ")}.`,
+    busy ? (busy === 1 ? "One of them is still working; closing ends it." : `${busy} of them are still working; closing ends them.`) : "",
+    bg ? "Background Claude sessions keep running and return under “Outside Toranj”." : "",
+  ].filter(Boolean).join(" ");
+  $("kill-ok").textContent = `Close ${tabs.length} terminals`;
+  $("kill-ok").className = "btn danger";
+  $("kill-ok").hidden = false;
+  $("kill-stop").hidden = true;
+  const dlg = $<HTMLDialogElement>("kill-dlg");
+  dlg.returnValue = "";
+  dlg.onclose = async () => {
+    if (dlg.returnValue !== "yes") { panes.get(current ?? "")?.term.focus(); return; }
+    for (const t of tabs) {
+      closing.add(t.name);
+      panes.get(t.name)?.dispose();
+      panes.delete(t.name);
+    }
+    if (current && tabs.some((t) => t.name === current)) current = [...panes.keys()][0] ?? null;
+    const failed: string[] = [];
+    await Promise.all(tabs.map((t) => invoke("kill_tab", { name: t.name, stopSession: false }).catch((e) => { failed.push(String(e)); })));
+    await refresh();
+    for (const t of tabs) closing.delete(t.name);
+    if (current) open(current); else render();
+    if (failed.length) showCloseError(failed[0]);
   };
   dlg.showModal();
 }
@@ -2965,6 +3215,11 @@ window.addEventListener("unhandledrejection", (e) => logUi(`rejection: ${String(
   onNotificationClick((tab) => { if (snap.tabs.some((t) => t.name === tab)) open(tab); });
   window.addEventListener("focus", () => { for (const n of panes.keys()) doneMarks.delete(n); render(); });
   await refresh();
-  if (snap.tabs[0]) open(snap.tabs[0].name);
+  // Back to the terminal you last had open, else the overview (never just
+  // the first tab by name).
+  let last: string | null = null;
+  try { last = localStorage.getItem("toranj.view"); } catch { /* none */ }
+  if (last && snap.tabs.some((t) => t.name === last)) open(last);
+  else { overview = snap.tabs.length > 0; render(); }
   setInterval(refresh, 2000);
 })();

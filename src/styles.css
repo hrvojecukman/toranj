@@ -98,7 +98,7 @@ kbd { font: 11px var(--mono); color: var(--mute); }
 
 /* Terminal panes: one, or all tabs of a project in a grid. */
 /* isolate: xterm layers its canvases with z-index; they must stay under the overview. */
-.grid { flex: 1; min-height: 0; display: grid; gap: 1px; background: var(--line); isolation: isolate; }
+.grid { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--bg); isolation: isolate; position: relative; }
 .tp { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--term); position: relative; }
 .tp-host { flex: 1; min-height: 0; padding: 8px 4px 4px 10px; }
 .tp-bar { display: none; align-items: center; gap: 7px; padding: 4px 10px; font-size: 11.5px; color: var(--mute); background: var(--bg); border-bottom: 1px solid var(--line); cursor: grab; }
@@ -428,7 +428,7 @@ dialog.set { width: min(480px, 92vw); }
 .proj.ws:hover .wgrid, .wgrid:focus-visible { opacity: 1; }
 .wgrid:hover { color: var(--fg); background: var(--line); }
 /* Dragging a project onto another to group them. */
-.proj[data-proj] { cursor: grab; }
+.proj[data-proj] { cursor: pointer; }
 body.dragging, body.dragging * { cursor: grabbing !important; }
 .proj.drag-src { opacity: .35; }
 .proj.merge-hover { background: color-mix(in srgb, var(--accent) 8%, transparent); border-radius: 8px; }
@@ -447,5 +447,41 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 #tabs > .drop-before::after, #tabs > .drop-after::after { content: ""; position: absolute; left: 8px; right: 8px; height: 2px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent); pointer-events: none; z-index: 3; }
 #tabs > .drop-before::after { top: -1px; } #tabs > .drop-after::after { bottom: -1px; }
 .sess.drag-src { opacity: .35; }
-.proj.ws { cursor: grab; }
+.proj.ws { cursor: pointer; }
 .proj-item.wsf span em { font-style: normal; font-size: 11px; color: var(--accent); margin-left: 4px; }
+/* A group in the sidebar: one tinted, rounded box around its rows. */
+#tabs > .wsbox { margin-inline: 6px; width: calc(100% - 12px); background: color-mix(in srgb, var(--accent) 10%, var(--rail)); }
+#tabs > .wsbox-top { margin-top: 8px; border-radius: 10px 10px 0 0; }
+#tabs > .wsbox-end { border-radius: 0 0 10px 10px; padding-bottom: 6px; margin-bottom: 4px; }
+#tabs > .wsbox-top.wsbox-end { border-radius: 10px; }
+#tabs > .proj.ws.wsbox { padding-left: 8px; }
+#tabs > .proj.ws.on { background: color-mix(in srgb, var(--accent) 18%, var(--rail)); }
+/* A group on the Overview: its projects' cards in one box. */
+.ov-group { grid-column: 1 / -1; border-radius: 12px; padding: 8px 10px 10px; background: color-mix(in srgb, var(--accent) 6%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line)); }
+.ov-ghead { display: flex; align-items: baseline; gap: 8px; border: 0; background: none; padding: 2px 4px 8px; cursor: pointer; color: var(--fg); font: inherit; text-align: left; }
+.ov-ghead i { font-style: normal; color: var(--accent); }
+.ov-ghead b { font-size: 13px; letter-spacing: .05em; text-transform: uppercase; }
+.ov-ghead span { color: var(--mute); font-size: 12px; }
+.ov-ghead:hover b { color: var(--accent); text-decoration: underline; }
+.ov-ghead:focus-visible { outline: 2px solid var(--accent); border-radius: 6px; }
+.ov-ggrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+.ov-group { cursor: pointer; transition: border-color .12s, background .12s; }
+.ov-group:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.ov-group .ov-card { cursor: pointer; }
+.proj[data-proj]:hover:not(.ws) .pn { color: var(--fg); }
+/* Rows of panes, with dividers between them (drag to resize). */
+.grow { display: flex; min-height: 0; min-width: 0; }
+.grow > .tp { min-width: 0; }
+.gut { flex: none; position: relative; background: var(--bg); z-index: 2; }
+.gut.v { width: 5px; cursor: col-resize; }
+.gut.h { height: 5px; cursor: row-resize; }
+.gut::after { content: ""; position: absolute; background: var(--line); transition: background .12s; }
+.gut.v::after { top: 0; bottom: 0; left: 2px; width: 1px; }
+.gut.h::after { left: 0; right: 0; top: 2px; height: 1px; }
+.gut:hover::after, body.resizing-c .gut.v::after, body.resizing-r .gut.h::after { background: var(--accent); }
+.gut.v:hover::after, body.resizing-c .gut.v::after { left: 1px; width: 3px; }
+.gut.h:hover::after, body.resizing-r .gut.h::after { top: 1px; height: 3px; }
+body.resizing-c, body.resizing-c * { cursor: col-resize !important; user-select: none; }
+body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select: none; }
+.gut.snap::after { background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+.proj-item small.wsfolders { white-space: normal; color: var(--fg); opacity: .75; }

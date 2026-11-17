@@ -1,6 +1,6 @@
 [package]
 name = "toranj"
-version = "0.1.0"
+version = "0.1.1"
 description = "One window for all your coding agents"
 authors = ["Hrvoje Cukman"]
 license = "MIT"
@@ -35,6 +35,7 @@ libc = "0.2.191"
 
 
 [target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSHapticFeedback"] }
 objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString", "NSDictionary", "NSBundle", "NSError", "NSArray"] }
