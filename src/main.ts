@@ -1209,6 +1209,15 @@ function render() {
     }
   }
   sync($("tabs"), items);
+  // A group's rows form one box: tinted, rounded at its first and last row.
+  for (const u of sidebarUnits()) {
+    const box = u.key.startsWith("w:");
+    u.rows.forEach((el, i) => {
+      el.classList.toggle("wsbox", box);
+      el.classList.toggle("wsbox-top", box && i === 0);
+      el.classList.toggle("wsbox-end", box && i === u.rows.length - 1);
+    });
+  }
   sendLabels();
 
   const ext: Item[] = [];
@@ -1445,7 +1454,7 @@ function renderOverview() {
   // details count only where they are shown, so running agents don't churn it.
   const keys = list.map((p) => p.key);
   const extOf = (key: string) => snap.external.filter((e) => extHome(e, keys) === key);
-  const sig = JSON.stringify([ovFilter, list.map((p) => [p.key, p.git, p.tabs.map((t) => [t.name, t.title, t.agent, st(t), st(t) === "waiting" || st(t) === "error" ? t.detail : "", sidebarNumber(t.name)]),
+  const sig = JSON.stringify([ovFilter, list.map((p) => [p.key, wsNow.get(p.key)?.id ?? "", wsNow.get(p.key)?.label ?? "", p.git, p.tabs.map((t) => [t.name, t.title, t.agent, st(t), st(t) === "waiting" || st(t) === "error" ? t.detail : "", sidebarNumber(t.name)]),
     extOf(p.key).map((e) => [e.session_id, e.title, e.name, e.state, e.background, e.unlisted, e.detail])]), snap.external.length]);
   if (sig === ovSig) return;
   ovSig = sig;
@@ -1475,7 +1484,7 @@ function renderOverview() {
 
   const ext = snap.external.length
     ? `<p class="ov-ext"><button class="ov-chip" data-ext title="Show them in the sidebar">${plural(snap.external.length, "Claude session runs", "Claude sessions run")} outside Toranj</button></p>` : "";
-  const cards = list.map((p, i) => {
+  const cardHtml = list.map((p, i) => {
     if (!match(p, ovFilter)) return "";
     const g = p.git;
     const gitBtn = g ? `<button class="btn gitbtn${g.changed || g.ahead ? " dirty" : ""}" data-git="${i}" title="Git details">${escapeHtml(gitText(g))}</button>` : "";
@@ -1498,6 +1507,25 @@ function renderOverview() {
       <div class="ov-tabs">${rows}</div>
       <footer><button class="link" data-new="${i}">+ Terminal</button><button class="link" data-code="${i}">Open in VS Code</button></footer>
     </section>`;
+  });
+  // A group's projects sit together in one box, where its first project
+  // would be (the list is sorted by what needs you).
+  const doneWs = new Set<string>();
+  const cards = list.map((p, i) => {
+    const w = wsNow.get(p.key);
+    if (!w) return cardHtml[i];
+    if (doneWs.has(w.id)) return "";
+    doneWs.add(w.id);
+    const members = list.map((q, j) => [q, j] as const).filter(([q]) => wsNow.get(q.key)?.id === w.id);
+    const inner = members.map(([, j]) => cardHtml[j]).join("");
+    if (!inner) return "";
+    const n = members.reduce((s, [q]) => s + q.tabs.length, 0);
+    return `<div class="ov-group">
+      <button class="ov-ghead" data-ovws="${escapeHtml(w.id)}" title="Show all its terminals together">
+        <i aria-hidden="true">▦</i><b>${escapeHtml(w.label)}</b><span>${plural(members.length, "project", "projects")} · ${plural(n, "terminal", "terminals")}</span>
+      </button>
+      <div class="ov-ggrid">${inner}</div>
+    </div>`;
   }).join("");
 
   const box = $("overview");
@@ -1512,6 +1540,9 @@ function renderOverview() {
     </div>
     <div class="ov-grid">${cards}</div>`;
   box.querySelectorAll<HTMLElement>("[data-icon]").forEach((el) => paintIcon(el, list[Number(el.dataset.icon)].key));
+  box.querySelectorAll<HTMLButtonElement>("[data-ovws]").forEach((b) => b.addEventListener("click", () => {
+    showWorkspaceGrid(snap.tabs.filter((t) => wsNow.get(groupKey(t))?.id === b.dataset.ovws));
+  }));
   box.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((b) => b.addEventListener("click", () => open(b.dataset.tab!)));
   box.querySelectorAll<HTMLButtonElement>("[data-ext-move]").forEach((b) => b.addEventListener("click", () => {
     const e = snap.external.find((x) => x.session_id === b.dataset.extMove);
