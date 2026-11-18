@@ -123,6 +123,39 @@ fn nonce() -> String {
     format!("{:016x}", h.finish())
 }
 
+/// A program that turned on mouse reporting and exited without turning it
+/// off (Claude does when it quits abruptly) leaves its pane forwarding every
+/// drag to the shell, which ignores it: nothing can be selected. For panes
+/// back at a shell prompt, write the "mouse off" sequences to the pane's tty
+/// so tmux sees them as output and selects with the mouse again.
+pub fn reset_stale_mouse() {
+    let tok = nonce();
+    let sep = format!("\u{1f}{tok}\u{1f}");
+    let fmt = ["#{session_name}", "#{pane_tty}", "#{pane_current_command}", "#{mouse_any_flag}", "#{alternate_on}"].join(&sep);
+    let Ok(out) = run(&["list-panes", "-a", "-F", &fmt]) else { return };
+    for l in out.lines() {
+        let f: Vec<&str> = l.split(&sep).collect();
+        if f.len() != 5 || !crate::spool::valid_tab(f[0]) || f[3] != "1" || f[4] != "0" {
+            continue;
+        }
+        let shell = f[2].trim_start_matches('-');
+        if !matches!(shell, "zsh" | "bash" | "fish" | "sh") {
+            continue;
+        }
+        let tty = f[1];
+        if !tty.strip_prefix("/dev/ttys").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())) {
+            continue;
+        }
+        use std::os::unix::fs::OpenOptionsExt;
+        // Never become this tty's controlling process; never wait on it.
+        let opened = std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NOCTTY | libc::O_NONBLOCK).open(tty);
+        if let Ok(mut t) = opened {
+            use std::io::Write;
+            let _ = t.write_all(b"\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l");
+        }
+    }
+}
+
 pub fn list() -> Vec<Session> {
     let tok = nonce();
     let sep = format!("\u{1f}{tok}\u{1f}");

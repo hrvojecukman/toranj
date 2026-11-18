@@ -23,7 +23,10 @@ async fn list_projects() -> Vec<projects::Project> {
 #[tauri::command]
 async fn snapshot() -> Result<status::Snapshot, String> {
     // ps, tmux, claude and git are blocking calls; keep them off the async runtime.
-    tauri::async_runtime::spawn_blocking(|| status::snapshot(&tmux::list()))
+    tauri::async_runtime::spawn_blocking(|| {
+        tmux::reset_stale_mouse();
+        status::snapshot(&tmux::list())
+    })
         .await
         .map_err(|e| e.to_string())
 }

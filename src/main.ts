@@ -110,6 +110,23 @@ class Pane {
   private readonly fit = new FitAddon();
   private readonly ro: ResizeObserver;
   attachId: number | null = null;
+  private copiedTimer = 0;
+
+  /** A short "Copied" in the pane's corner after a selection reaches the clipboard. */
+  copied() {
+    let tag = this.el.querySelector<HTMLElement>(".tp-copied");
+    if (!tag) {
+      tag = document.createElement("div");
+      tag.className = "tp-copied";
+      tag.textContent = "Copied";
+      this.el.append(tag);
+    }
+    tag.classList.remove("go");
+    void tag.offsetWidth; // restart the animation
+    tag.classList.add("go");
+    clearTimeout(this.copiedTimer);
+    this.copiedTimer = window.setTimeout(() => tag!.classList.remove("go"), 1300);
+  }
   private disposed = false;
 
   constructor(readonly name: string, parent: HTMLElement) {
@@ -130,7 +147,7 @@ class Pane {
     // read the clipboard: an OSC 52 query would type it into the terminal.
     t.loadAddon(new ClipboardAddon(undefined, {
       readText: () => "",
-      writeText: (_sel, text) => navigator.clipboard.writeText(text),
+      writeText: (_sel, text) => navigator.clipboard.writeText(text).then(() => this.copied()),
     }));
     const uni = new Unicode11Addon();
     t.loadAddon(uni);

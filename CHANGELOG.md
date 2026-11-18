@@ -7,6 +7,10 @@ All notable changes to Toranj. The format follows [Keep a Changelog](https://kee
 ### Added
 - New terminal can continue a Claude conversation: with `claude` chosen, it lists the folder's recent conversations (title and when), and picking one runs `claude --resume <id>`. Conversations open in a running Claude are left out.
 
+### Fixed
+- Text couldn't be selected in a shell after Claude (or another program) exited without turning mouse reporting off. Toranj now turns it off once the pane is back at a shell prompt.
+- Selecting text shows a short "Copied" in the pane, since a mouse selection goes straight to the clipboard.
+
 ### Changed
 - New terminal lists workspaces (VS Code workspaces and whole folders) and projects in two labelled sections, with each workspace's folders on one line.
 
