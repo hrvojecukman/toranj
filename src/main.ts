@@ -2230,6 +2230,9 @@ async function openNew(pre?: Project) {
   const dlg = $<HTMLDialogElement>("new-dlg");
   $("new-err").hidden = true;
   $<HTMLInputElement>("proj-filter").value = "";
+  resumeFor = "";
+  pasts = [];
+  setResume("");
   if (!projects.length) projects = await invoke<Project[]>("list_projects");
   void loadDialogWorkspaces();
   if (pre) {
@@ -2301,49 +2304,149 @@ function workspaceFolders(): Project[] {
   return [...by].filter(([, n]) => n >= 2).map(([path, count]) => ({ name: path.split("/").pop() ?? path, path, count }));
 }
 
+const tildePath = (p: string) => p.replace(/^\/Users\/[^/]+/, "~");
+
+function sectionHead(title: string, hint: string): HTMLElement {
+  const h = document.createElement("div");
+  h.className = "proj-sec";
+  h.setAttribute("role", "presentation");
+  const b = document.createElement("b");
+  b.textContent = title;
+  const s = document.createElement("small");
+  s.textContent = hint;
+  h.append(b, s);
+  return h;
+}
+
+function projectItem(p: Project): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.setAttribute("role", "option");
+  b.className = "proj-item" + (p.count ? " wsf" : "") + (p === picked ? " on" : "");
+  b.setAttribute("aria-selected", String(p === picked));
+  const top = document.createElement("span");
+  top.className = "pt";
+  const nm = document.createElement("span");
+  nm.className = "pn";
+  nm.textContent = p.name;
+  top.append(nm);
+  if (p.count) {
+    const tag = document.createElement("em");
+    tag.textContent = p.folders ? "VS Code workspace" : "Folder";
+    top.append(tag);
+  }
+  b.append(top);
+  if (p.folders) {
+    // What the agent will be able to read, in plain sight: relative to the
+    // workspace file, so a folder outside it shows as ../ or a full path.
+    const base = p.path.replace(/\/[^/]+$/, "");
+    const f = document.createElement("small");
+    f.className = "wsfolders";
+    f.textContent = `${p.count} folders · ${[...new Set(p.folders)].map((x) => tildePath(relPath(base, x))).join(", ")}`;
+    b.append(f);
+    b.title = `Opens in ${p.folders[0].split("/").pop()}; claude also gets the other folders (--add-dir):\n${p.folders.map(tildePath).join("\n")}`;
+  } else if (p.count) {
+    const f = document.createElement("small");
+    f.className = "wsfolders";
+    f.textContent = `${p.count} projects · ${projects.filter((x) => !x.count && x.path.startsWith(p.path + "/")).map((x) => x.name).join(", ")}`;
+    b.append(f);
+    b.title = "Opens the terminal in this folder, so the agent sees every project in it";
+  }
+  const s = document.createElement("small");
+  s.textContent = tildePath(p.path);
+  b.append(s);
+  b.onclick = () => { picked = p; drawProjects($<HTMLInputElement>("proj-filter").value); };
+  return b;
+}
+
 function drawProjects(f: string) {
   const list = $("proj-list");
   list.replaceChildren();
   const q = f.toLowerCase();
-  const all = [...workspaceFolders(), ...dialogWs, ...projects.filter((p) => !p.count)];
+  const match = (p: Project) => p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q);
+  const ws = [...workspaceFolders(), ...dialogWs];
   // Keep the picked entry's identity across redraws (workspace entries are rebuilt).
-  if (picked?.count) picked = all.find((p) => p.path === picked!.path) ?? picked;
-  const hits = all.filter((p) => p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q))
-    // A workspace right above its projects.
-    .sort((a, b) => a.path.localeCompare(b.path) || (b.count ?? 0) - (a.count ?? 0))
-    .slice(0, 80);
+  if (picked?.count) picked = ws.find((p) => p.path === picked!.path) ?? picked;
+  const wsHits = ws.filter(match).sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path)).slice(0, 40);
+  const projHits = projects.filter((p) => !p.count && match(p)).sort((a, b) => a.path.localeCompare(b.path)).slice(0, 80);
+  // Typing picks the first project; workspaces are picked on purpose.
+  const hits = [...projHits, ...wsHits];
   if (q && hits.length && !hits.includes(picked!)) picked = hits[0];
-  for (const p of hits) {
+  if (wsHits.length) {
+    list.append(sectionHead("Workspaces", "several projects in one terminal"));
+    for (const p of wsHits) list.append(projectItem(p));
+  }
+  if (projHits.length) {
+    list.append(sectionHead("Projects", "one repository each"));
+    for (const p of projHits) list.append(projectItem(p));
+  }
+  if (!hits.length) {
+    const e = document.createElement("p");
+    e.className = "proj-none";
+    e.textContent = "No project matches.";
+    list.append(e);
+  }
+  void loadResume();
+}
+
+// ---------- continue a Claude conversation ----------
+interface Past { id: string; title: string; modified: number }
+let resumeFor = ""; // the folder whose conversations are listed
+let pasts: Past[] = [];
+let resumeId = "";
+
+/** The folder a terminal for the picked entry starts in. */
+const pickedCwd = () => (picked ? picked.folders?.[0] ?? picked.path : "");
+const isClaudeCmd = () => $<HTMLInputElement>("cmd").value.trim().split(/\s+/)[0] === "claude";
+
+async function loadResume() {
+  const box = $("resume");
+  const cwd = pickedCwd();
+  if (!cwd || !isClaudeCmd()) { box.hidden = true; return; }
+  if (cwd === resumeFor) { box.hidden = !pasts.length; return; }
+  resumeFor = cwd;
+  pasts = [];
+  setResume("");
+  box.hidden = true;
+  const got = await invoke<Past[]>("recent_sessions", { cwd }).catch(() => [] as Past[]);
+  if (resumeFor !== cwd) return; // another project was picked meanwhile
+  pasts = got;
+  drawResume();
+  box.hidden = !pasts.length || !isClaudeCmd();
+}
+
+/** Picks a conversation ("" = a new one) and shows it in the command. */
+function setResume(id: string) {
+  resumeId = id;
+  const cmd = $<HTMLInputElement>("cmd");
+  const base = cmd.value.replace(/\s+--resume\s+\S+/g, "").trim();
+  if (base.split(/\s+/)[0] === "claude") cmd.value = id ? `${base} --resume ${id}` : base;
+  $("new-ok").textContent = id ? "Continue" : "Open";
+  drawResume();
+}
+
+function drawResume() {
+  const list = $("resume-list");
+  list.replaceChildren();
+  const row = (id: string, title: string, when: string) => {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "proj-item" + (p.count ? " wsf" : "") + (p === picked ? " on" : "");
-    const nm = document.createElement("span");
-    nm.textContent = p.name;
-    if (p.count) {
-      const tag = document.createElement("em");
-      if (p.folders) {
-        tag.textContent = `VS Code workspace · ${p.count} projects`;
-        b.title = `Opens in ${p.folders[0].split("/").pop()}; claude also gets the other folders (--add-dir):\n${p.folders.map((f) => f.replace(/^\/Users\/[^/]+/, "~")).join("\n")}`;
-      } else {
-        tag.textContent = `whole folder · ${p.count} projects`;
-        b.title = "Opens the terminal in this folder, so the agent sees every project in it";
-      }
-      nm.append(" ", tag);
+    b.setAttribute("role", "option");
+    b.className = "resume-item" + (id === resumeId ? " on" : "") + (id ? "" : " new");
+    b.setAttribute("aria-selected", String(id === resumeId));
+    const t = document.createElement("span");
+    t.textContent = title;
+    b.append(t);
+    if (when) {
+      const w = document.createElement("small");
+      w.textContent = when;
+      b.append(w);
     }
-    b.append(nm);
-    const s = document.createElement("small");
-    s.textContent = p.path.replace(/^\/Users\/[^/]+/, "~");
-    b.append(s);
-    // What the agent will be able to read, in plain sight.
-    if (p.folders) {
-      const f = document.createElement("small");
-      f.className = "wsfolders";
-      f.textContent = `folders: ${[...new Set(p.folders.map((x) => x.replace(/^\/Users\/[^/]+/, "~")))].join(", ")}`;
-      b.append(f);
-    }
-    b.onclick = () => { picked = p; drawProjects($<HTMLInputElement>("proj-filter").value); };
+    b.onclick = () => setResume(id);
     list.append(b);
-  }
+  };
+  row("", "New conversation", "");
+  for (const p of pasts) row(p.id, p.title, `${ago(Math.floor(p.modified / 1000))} ago`);
 }
 
 $("proj-filter").addEventListener("input", (e) => drawProjects((e.target as HTMLInputElement).value));
@@ -2352,6 +2455,16 @@ $("cmds").addEventListener("click", (e) => {
   if (!b) return;
   document.querySelectorAll("#cmds .chip").forEach((c) => c.classList.toggle("on", c === b));
   $<HTMLInputElement>("cmd").value = b.dataset.cmd ?? "";
+  setResume("");
+  void loadResume();
+});
+$("cmd").addEventListener("input", () => {
+  // Typed by hand: follow whatever --resume the command now has.
+  const m = /\s--resume\s+(\S+)/.exec($<HTMLInputElement>("cmd").value);
+  resumeId = m && pasts.some((p) => p.id === m[1]) ? m[1] : "";
+  $("new-ok").textContent = resumeId ? "Continue" : "Open";
+  drawResume();
+  void loadResume();
 });
 $("new-cancel").onclick = () => $<HTMLDialogElement>("new-dlg").close();
 $("new-form").addEventListener("submit", async (e) => {

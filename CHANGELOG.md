@@ -4,6 +4,12 @@ All notable changes to Toranj. The format follows [Keep a Changelog](https://kee
 
 ## [Unreleased]
 
+### Added
+- New terminal can continue a Claude conversation: with `claude` chosen, it lists the folder's recent conversations (title and when), and picking one runs `claude --resume <id>`. Conversations open in a running Claude are left out.
+
+### Changed
+- New terminal lists workspaces (VS Code workspaces and whole folders) and projects in two labelled sections, with each workspace's folders on one line.
+
 ## [0.1.1] - 2026-11-17
 
 ### Fixed

@@ -45,7 +45,7 @@ static CACHE: Mutex<Option<HashMap<String, Entry>>> = Mutex::new(None);
 
 /// Claude names a project folder after the cwd with every character other
 /// than ASCII letters and digits replaced by '-'.
-fn project_dir(cwd: &str) -> String {
+pub(crate) fn project_dir(cwd: &str) -> String {
     cwd.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
@@ -199,6 +199,42 @@ pub fn title(session_id: &str, cwd: &str) -> String {
     let best = found.best().to_string();
     cache.insert(session_id.into(), Entry::Known { path, pos, found });
     best
+}
+
+/// The newest title in the last part of a transcript (titles are appended
+/// as the conversation goes), without the per-session cache.
+pub(crate) fn tail_title(path: &std::path::Path) -> String {
+    const TAIL: u64 = 1 << 20;
+    let Ok(mut f) = File::open(path) else {
+        return String::new();
+    };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let start = len.saturating_sub(TAIL);
+    if f.seek(SeekFrom::Start(start)).is_err() {
+        return String::new();
+    }
+    let mut r = BufReader::new(f.take(TAIL));
+    let mut found = Found::default();
+    let mut line = Vec::new();
+    let mut first = start > 0; // the first line is cut: skip it
+    loop {
+        line.clear();
+        match read_head(&mut r, &mut line) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        if std::mem::take(&mut first) {
+            continue;
+        }
+        let l = line.strip_suffix(b"\n").unwrap_or(&line);
+        read_line(l, &mut found);
+    }
+    found.best().to_string()
+}
+
+/// Shortens text to one clean line for a list.
+pub(crate) fn one_line(s: &str) -> String {
+    clean(s)
 }
 
 /// Forgets sessions that are no longer running.

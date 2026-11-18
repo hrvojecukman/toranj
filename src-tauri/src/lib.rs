@@ -1,5 +1,6 @@
 mod claude_hooks;
 mod git;
+mod history;
 mod icons;
 mod projects;
 mod pty;
@@ -403,6 +404,7 @@ pub fn run() {
             uninstall_claude_statusline,
             set_status_labels,
             icons::project_icon,
+            history::recent_sessions,
             workspaces::workspace_files,
             notifications::notify_native,
             claude_hooks_status,

@@ -533,7 +533,7 @@ pub(crate) fn safe_id(id: &str) -> bool {
 }
 
 /// EPERM means the process exists but belongs to someone else: still alive.
-fn alive(pid: u32) -> bool {
+pub(crate) fn alive(pid: u32) -> bool {
     // kill(0 or a negative pid) would address process groups.
     if pid == 0 || pid > i32::MAX as u32 {
         return false;

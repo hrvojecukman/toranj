@@ -131,7 +131,7 @@ dialog h3 { margin: 0 0 12px; font-size: 15px; }
 dialog label { display: block; font-size: 12px; color: var(--mute); margin: 10px 0 4px; }
 dialog input { width: 100%; padding: 7px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--rail); color: var(--fg); font: 13px var(--sans); user-select: text; }
 dialog input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-.proj-list { max-height: 220px; overflow: auto; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 6px 6px; }
+.proj-list { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 6px 6px; }
 .proj-item { display: grid; width: 100%; text-align: left; padding: 6px 9px; border: 0; background: none; cursor: pointer; gap: 1px; }
 .proj-item span, .proj-item small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .proj-item small { color: var(--mute); font-family: var(--mono); font-size: 10.5px; }
@@ -448,7 +448,6 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 #tabs > .drop-before::after { top: -1px; } #tabs > .drop-after::after { bottom: -1px; }
 .sess.drag-src { opacity: .35; }
 .proj.ws { cursor: pointer; }
-.proj-item.wsf span em { font-style: normal; font-size: 11px; color: var(--accent); margin-left: 4px; }
 /* A group in the sidebar: one tinted, rounded box around its rows. */
 #tabs > .wsbox { margin-inline: 6px; width: calc(100% - 12px); background: color-mix(in srgb, var(--accent) 10%, var(--rail)); }
 #tabs > .wsbox-top { margin-top: 8px; border-radius: 10px 10px 0 0; }
@@ -484,4 +483,25 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 body.resizing-c, body.resizing-c * { cursor: col-resize !important; user-select: none; }
 body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select: none; }
 .gut.snap::after { background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
-.proj-item small.wsfolders { white-space: normal; color: var(--fg); opacity: .75; }
+
+
+/* New terminal: projects and workspaces as two labelled sections. */
+#new-dlg { width: min(540px, 92vw); }
+.proj-sec { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 8px; padding: 7px 9px 4px; background: var(--bg); border-bottom: 1px solid var(--line); }
+.proj-sec b { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); }
+.proj-sec small { font-size: 11px; color: var(--mute); opacity: .75; }
+.proj-item + .proj-sec { margin-top: 4px; }
+.proj-item .pt { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.proj-item .pn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.proj-item .pt em { flex: none; font-style: normal; font-size: 10.5px; line-height: 1; padding: 2px 6px; border-radius: 99px; color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.proj-item.wsf { border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); padding-left: 7px; }
+.proj-item small.wsfolders { font-family: var(--sans); font-size: 11px; color: var(--fg); opacity: .7; }
+.proj-none { margin: 0; padding: 10px; color: var(--mute); font-size: 12px; }
+/* Continue a Claude conversation. */
+.resume-list { max-height: 168px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+.resume-item { display: flex; align-items: baseline; gap: 10px; width: 100%; text-align: left; padding: 5px 9px; border: 0; background: none; cursor: pointer; color: var(--fg); font: 12.5px var(--sans); }
+.resume-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resume-item small { flex: none; color: var(--mute); font-size: 11px; }
+.resume-item.new span { color: var(--mute); }
+.resume-item:hover, .resume-item.on { background: var(--accentbg); }
+.resume-item.on span { color: var(--fg); }

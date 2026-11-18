@@ -46,6 +46,14 @@ export async function installMock() {
       // A sample icon for projects whose name has an "a" in it; the rest show their initial.
       case "project_icon": return /a[^/]*$/.test(args.path) ? `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="#2b6cb0"/><circle cx="8" cy="8" r="4" fill="#f6c343"/></svg>')}` : null;
       case "tmux_available": return true;
+      case "recent_sessions": {
+        const now = Date.now();
+        return [
+          { id: "1f0c2a4e-7b1d-4c3e-9a51-2d6f8e0b7c11", title: "Fix the login redirect after sign-up", modified: now - 25 * 60_000 },
+          { id: "8d3e5f60-2a4b-4c1d-8e9f-0a1b2c3d4e5f", title: "Add dark mode to the settings page", modified: now - 5 * 3600_000 },
+          { id: "c2b4d6e8-0f1a-4b3c-9d5e-7f8091a2b3c4", title: "Why does the build fail on CI?", modified: now - 3 * 86400_000 },
+        ];
+      }
       case "list_projects": return data.projects;
       case "snapshot": return data.snapshot;
       case "resources": return data.resources ?? null;
