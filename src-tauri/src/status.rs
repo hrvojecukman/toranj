@@ -288,7 +288,15 @@ pub fn snapshot(sessions: &[Session]) -> Snapshot {
                         .unwrap_or(false)
             })) {
                 used[i] = true;
-                let (state, detail) = claude_state(r);
+                let (mut state, detail) = claude_state(r);
+                // Answered from the dock or the phone: working on it, not waiting.
+                if state == "waiting" {
+                    if crate::tmux::still_answered(&s.name) {
+                        state = "running".into();
+                    }
+                } else {
+                    crate::tmux::forget_answered(&s.name);
+                }
                 return TabStatus {
                     name: s.name.clone(),
                     project: s.project.clone(),

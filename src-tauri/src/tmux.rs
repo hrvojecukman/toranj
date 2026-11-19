@@ -641,7 +641,39 @@ pub fn answer(name: &str, key: &str, fingerprint: &str) -> Result<(), String> {
     if now.fingerprint != fingerprint || !now.choices.iter().any(|c| c.key == key) {
         return Err("the question changed; open the tab".into());
     }
-    run(&["send-keys", "-t", &exact_pane(name), key]).map(|_| ())
+    run(&["send-keys", "-t", &exact_pane(name), key])?;
+    answered().insert(name.to_string(), (fingerprint.to_string(), std::time::Instant::now()));
+    Ok(())
+}
+
+/// Questions answered from Toranj (dock, phone), by tab. Claude's own status
+/// keeps saying "waiting" until the approved step finishes, which can take
+/// minutes; meanwhile the tab isn't waiting for anyone.
+fn answered() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, (String, std::time::Instant)>> {
+    static A: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, (String, std::time::Instant)>>> = std::sync::OnceLock::new();
+    A.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// For a tab whose agent reports "waiting": true while the question answered
+/// from Toranj is still the latest one (it is gone, or still on screen right
+/// after the key press). A new question, or 20 minutes, end it.
+pub fn still_answered(name: &str) -> bool {
+    let Some((fp, at)) = answered().get(name).cloned() else { return false };
+    let current = screen(name).ok().and_then(|s| prompt(&s));
+    let same = match current {
+        None => true,
+        Some(p) => p.fingerprint == fp,
+    };
+    if !same || at.elapsed() > std::time::Duration::from_secs(20 * 60) {
+        answered().remove(name);
+        return false;
+    }
+    true
+}
+
+/// The agent moved on (running, idle, done): nothing to remember.
+pub fn forget_answered(name: &str) {
+    answered().remove(name);
 }
 
 #[cfg(test)]

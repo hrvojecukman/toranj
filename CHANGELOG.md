@@ -11,6 +11,7 @@ All notable changes to Toranj. The format follows [Keep a Changelog](https://kee
 - New terminal can continue a Claude conversation: with `claude` chosen, it lists the folder's recent conversations (title and when), and picking one runs `claude --resume <id>`. Conversations open in a running Claude are left out.
 
 ### Fixed
+- A question answered from the dock or the phone no longer leaves the terminal "waiting" (and its card up) while Claude works on the approved step; it shows as running until a new question comes.
 - Answering from the dock failed with "the question changed" on Claude prompts that count down ("…automatically block this request in 1:48").
 - ⌘-click on a link in a terminal opens it in your browser again (plain URLs and the links Claude prints).
 - Text couldn't be selected in a shell after Claude (or another program) exited without turning mouse reporting off. Toranj now turns it off once the pane is back at a shell prompt.
