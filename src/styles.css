@@ -543,3 +543,8 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .wdock.quick .wcard:first-child .wcard-q i { margin: 8px -16px 0; height: 4px; }
 .wdock.quick .wcard:first-child .wcard-a .btn { font-size: 13.5px; padding: 6px 12px; }
 @media (prefers-reduced-motion: reduce) { .wdock, .wdock .wcard:first-child { transition: none; } }
+
+/* ⌘N on group and project headers in the sidebar. */
+.proj > kbd.hk { flex: none; font: 10px var(--mono); color: var(--mute); opacity: .7; margin: 0 2px 0 6px; }
+.proj:not(.ws) > kbd.hk { margin-left: auto; }
+.proj > kbd.hk + .padd { margin-left: 0; }

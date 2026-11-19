@@ -22,7 +22,7 @@ Toranj puts those terminals in one window instead. They run in a private tmux se
 - **Notifications.** When an agent starts waiting or a Claude session finishes while you are looking elsewhere, you get a native macOS notification (click it to open the terminal), an in-app sound you can pick, and a Dock badge.
 - **Layouts.** Show one terminal, or all of a project's terminals as a grid, columns or rows. Drag a pane's title bar to swap panes. The layout is remembered per project and per workspace.
 - **Workspaces.** Related projects (say, an API and its web app) are grouped automatically when a VS Code `*.code-workspace` file lists them or when they share a parent folder. You can also drag one project onto another to group them. A workspace can show all of its terminals in one grid.
-- **Drag to reorder** groups, projects and terminals in the sidebar. ⌘1–9 follow that order.
+- **Drag to reorder** groups, projects and terminals in the sidebar. ⌘1–9 (groups and projects) and ⌃1–9 (terminals) follow that order.
 - **Project icons** are found in the project itself (app icon, favicon), or a letter is shown.
 - **Claude sessions outside Toranj** (started in another terminal, or as background sessions with `claude --bg`) appear under their project. You can move them into Toranj: an idle interactive session is resumed in a new tab with `claude --resume`, and a background session gets a tab running `claude attach`.
 - **Git panel** per project: changed files, recent commits and whether they are pushed, branches (merged, gone upstream), worktrees and stashes.
@@ -77,13 +77,15 @@ The app ends up in `target/release/bundle/macos/Toranj.app`.
 | ⌘K | Quick switch (press again to close) |
 | ⌘0 | Overview of all projects (Esc goes back) |
 | ⌘U | Next terminal that needs you |
-| ⌘1 – ⌘9 | Terminal by its position in the sidebar |
+| ⌘1 – ⌘9 | Group or project by its position in the sidebar |
+| ⌃1 – ⌃9 | Terminal by its position in the sidebar |
+| ⌘[ / ⌘] | Back / forward to where you were (configurable: ⌘← ⌘→, ⌥⌘← ⌥⌘→, ⌃⌘← ⌃⌘→) |
 | ⌘G | Switch between a single terminal and the project's grid/columns/rows |
 | ⌘W | Close the current terminal (asks first) |
 | ⌘+ / ⌘− | Font size |
 | ⌘, | Settings |
 | ⇧Enter or ⌘Enter | New line in the prompt instead of sending |
-| ⌘← / ⌘→ | Start / end of line |
+| ⌘← / ⌘→ | Start / end of line (unless chosen for back / forward) |
 | ⌥← / ⌥→ | Word left / right |
 | ⌘⌫ | Delete to start of line |
 

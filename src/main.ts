@@ -55,7 +55,7 @@ function openLink(e: MouseEvent, uri: string) {
 // ---------- settings ----------
 // Stored in this app's localStorage: a per-machine preference.
 type Theme = "dark" | "light" | "system";
-interface Settings { fontSize: number; theme: Theme; sound: boolean; doneSound: string; waitSound: string; quickSecs: number; quickKey: string }
+interface Settings { fontSize: number; theme: Theme; sound: boolean; doneSound: string; waitSound: string; quickSecs: number; quickKey: string; backKeys: string }
 /** Quick open: how long a new dock card listens for its key (0 = off), and the keys offered. */
 const QUICK_SECS = [0, 5, 10, 20];
 const QUICK_KEYS: Record<string, string> = { Space: "Space", Return: "Enter", "→ (right arrow)": "ArrowRight", "Tab": "Tab" };
@@ -76,7 +76,7 @@ function soundFor(kind: Kind): string {
 }
 
 function loadSettings(): Settings {
-  const d: Settings = { fontSize: 13, theme: "dark", sound: true, doneSound: "Glass", waitSound: "Ping", quickSecs: 10, quickKey: "Space" };
+  const d: Settings = { fontSize: 13, theme: "dark", sound: true, doneSound: "Glass", waitSound: "Ping", quickSecs: 10, quickKey: "Space", backKeys: "bracket" };
   try {
     const s = JSON.parse(localStorage.getItem("toranj.settings") ?? "{}");
     const fs = typeof s.fontSize === "number" ? s.fontSize : NaN;
@@ -88,6 +88,7 @@ function loadSettings(): Settings {
       waitSound: SOUNDS.includes(s.waitSound) ? s.waitSound : d.waitSound,
       quickSecs: QUICK_SECS.includes(s.quickSecs) ? s.quickSecs : d.quickSecs,
       quickKey: Object.values(QUICK_KEYS).includes(s.quickKey) ? s.quickKey : d.quickKey,
+      backKeys: ["bracket", "arrows", "optarrows", "ctrlarrows"].includes(s.backKeys) ? s.backKeys : d.backKeys,
     };
   } catch { return d; }
 }
@@ -268,7 +269,7 @@ function groupTabs(cur: Tab): Tab[] {
   const key = viewKey(cur);
   const order = prefsFor(key).order;
   const rank = (n: string) => { const i = order.indexOf(n); return i < 0 ? order.length : i; };
-  // In a group, projects keep their sidebar order (same as ⌘1–9).
+  // In a group, projects keep their sidebar order (same as ⌃1–9).
   const prank = (t: Tab) => { const i = org.order.indexOf(`p:${groupKey(t)}`); return i < 0 ? org.order.length : i; };
   const pname = (t: Tab) => leafLabel(groupKey(t));
   return snap.tabs.filter((t) => viewKey(t) === key && !closing.has(t.name))
@@ -425,7 +426,7 @@ function paintPanes() {
     const dot = p.el.querySelector(".st") as HTMLElement;
     if (dot.className !== `st ${st}`) dot.className = `st ${st}`;
     const num = sidebarNumber(t.name);
-    setText(p.el, ".tp-n", (t.title || t.agent) + (num ? `  ⌘${num}` : ""));
+    setText(p.el, ".tp-n", (t.title || t.agent) + (num ? `  ⌃${num}` : ""));
     setText(p.el, ".tp-t", st === "running" ? ago(t.since) : LABEL[st]);
     const proj = groupKey(t);
     paintIcon(p.el.querySelector(".tp-foot .pi") as HTMLElement, proj);
@@ -472,8 +473,9 @@ function rememberView(tab: string) {
 
 // ---------- back / forward ----------
 // Every jump (a dock card, ⌘U, the sidebar, a click on another pane, the
-// overview) is remembered, so ⌘[ goes back to where you came from and ⌘]
-// forward again, like a browser. The mouse's back/forward buttons too.
+// overview) is remembered, so the back key (⌘[ by default, Settings →
+// Keyboard) goes back to where you came from and forward again, like a
+// browser. The mouse's back/forward buttons too.
 interface Place { tab: string | null; ov: boolean }
 const backStack: Place[] = [];
 const fwdStack: Place[] = [];
@@ -513,6 +515,35 @@ function goForward() {
     if (placeOk(p) && !samePlace(p, here())) { backStack.push(here()); goPlace(p); return; }
   }
 }
+
+/** Which keys go back/forward (Settings). */
+const BACK_KEYS: Record<string, { label: string; match: (e: KeyboardEvent) => 0 | -1 | 1 }> = {
+  bracket: { label: "⌘[ and ⌘] (⌘Š ⌘Đ)", match: (e) => e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey ? (e.code === "BracketLeft" || e.key === "[" ? -1 : e.code === "BracketRight" || e.key === "]" ? 1 : 0) : 0 },
+  arrows: { label: "⌘← and ⌘→", match: (e) => e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey ? (e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0) : 0 },
+  optarrows: { label: "⌥⌘← and ⌥⌘→", match: (e) => e.metaKey && e.altKey && !e.ctrlKey && !e.shiftKey ? (e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0) : 0 },
+  ctrlarrows: { label: "⌃⌘← and ⌃⌘→", match: (e) => e.metaKey && e.ctrlKey && !e.altKey && !e.shiftKey ? (e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0) : 0 },
+};
+
+// Capture phase, before the terminal: back/forward (⌘← would otherwise be
+// "start of line") and ⌃1–9 for terminals (⌃3 would otherwise be Esc).
+window.addEventListener("keydown", (e) => {
+  if (document.querySelector("dialog[open]")) return;
+  // Held down, the repeats are swallowed too: they would reach the terminal
+  // just opened (⌃3 is Esc there, ⌘← start of line).
+  const dir = (BACK_KEYS[settings.backKeys] ?? BACK_KEYS.bracket).match(e);
+  if (dir) {
+    e.preventDefault(); e.stopPropagation();
+    if (!e.repeat) { if (dir < 0) goBack(); else goForward(); }
+    return;
+  }
+  if (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && /^Digit[1-9]$/.test(e.code)) {
+    // Always Toranj's: ⌃N for a terminal that doesn't exist does nothing.
+    e.preventDefault(); e.stopPropagation();
+    if (e.repeat) return;
+    const order = [...document.querySelectorAll<HTMLButtonElement>("#tabs .sess:not(.ext)")];
+    order[Number(e.code.slice(5)) - 1]?.click();
+  }
+}, true);
 
 window.addEventListener("mouseup", (e) => {
   if (e.button === 3) { e.preventDefault(); goBack(); }
@@ -1389,7 +1420,7 @@ function render() {
             st === "running" ? ago(t.since) : SHORT[st],
             [t.title, `${t.agent} · ${LABEL[st]}${t.detail ? " · " + t.detail : ""}`, t.name].filter(Boolean).join("\n"),
             () => open(t.name),
-            num <= 9 ? `⌘${num}` : "");
+            num <= 9 ? `⌃${num}` : "");
           b.oncontextmenu = (e) => tabMenu(e, t.name);
           b.onpointerdown = (e) => startSidebarDrag(e, `t:${t.name}`);
         },
@@ -1399,6 +1430,18 @@ function render() {
     }
   }
   sync($("tabs"), items);
+  // ⌘1–9: the groups and the projects outside groups, in sidebar order.
+  // A row that stopped being a head (a project moved into a group) drops its label.
+  const heads = new Set(sidebarUnits().map((u) => u.rows[0]));
+  $("tabs").querySelectorAll<HTMLElement>(":scope > * > kbd.hk").forEach((k) => { if (!heads.has(k.parentElement!)) k.remove(); });
+  sidebarUnits().forEach((u, i) => {
+    const head = u.rows[0];
+    if (!head) return;
+    let k = head.querySelector<HTMLElement>(":scope > kbd.hk");
+    if (i >= 9) { k?.remove(); return; }
+    if (!k) { k = document.createElement("kbd"); k.className = "hk"; head.insertBefore(k, head.querySelector(":scope > .padd, :scope > .wgrid")); }
+    if (k.textContent !== `⌘${i + 1}`) k.textContent = `⌘${i + 1}`;
+  });
   // A group's rows form one box: tinted, rounded at its first and last row.
   for (const u of sidebarUnits()) {
     const box = u.key.startsWith("w:");
@@ -1686,7 +1729,7 @@ function renderOverview() {
       return `<button class="ov-tab" data-tab="${escapeHtml(t.name)}" title="${escapeHtml(LABEL[s])}">
         <i class="st ${s}"></i><span class="n${t.title ? "" : " plain"}">${escapeHtml(t.title || t.agent)}</span>
         ${t.detail && (s === "waiting" || s === "error") ? `<span class="d">${escapeHtml(t.detail)}</span>` : ""}
-        <span class="t ${right ? s : ""}">${right}</span>${num ? `<kbd>⌘${num}</kbd>` : ""}</button>`;
+        <span class="t ${right ? s : ""}">${right}</span>${num ? `<kbd>⌃${num}</kbd>` : ""}</button>`;
     }).join("") + extOf(p.key).map((e) => {
       const kind = e.unlisted ? "manual" : e.background ? "background" : "outside Toranj";
       return `<button class="ov-tab sub" data-ext-move="${escapeHtml(e.session_id)}" title="${escapeHtml(e.unlisted ? "Runs outside Toranj · click for how to move it" : "Runs outside Toranj · click to move it in")}">
@@ -1922,8 +1965,11 @@ function applySettings() {
     b.setAttribute("aria-pressed", String(on));
   });
   quickKeyPicker?.update(!settings.quickSecs);
+  backKeysPicker?.update(false);
+  $("set-back-note").hidden = settings.backKeys !== "arrows";
 }
 let quickKeyPicker: Picker | null = null;
+let backKeysPicker: Picker | null = null;
 
 function setFont(n: number) {
   settings.fontSize = Math.min(FONT_MAX, Math.max(FONT_MIN, n));
@@ -2112,6 +2158,10 @@ quickKeyPicker = picker($("set-quick-key"), Object.keys(QUICK_KEYS), () => Objec
   settings.quickKey = QUICK_KEYS[v] ?? "Space";
   saveSettings(); applySettings();
 });
+backKeysPicker = picker($("set-back"), Object.values(BACK_KEYS).map((k) => k.label), () => (BACK_KEYS[settings.backKeys] ?? BACK_KEYS.bracket).label, (v) => {
+  settings.backKeys = Object.entries(BACK_KEYS).find(([, k]) => k.label === v)?.[0] ?? "bracket";
+  saveSettings(); applySettings();
+});
 $("set-sound").querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
   b.onclick = () => {
     settings.sound = b.dataset.sound === "on";
@@ -2148,7 +2198,7 @@ function palAll(withProjects: boolean): PalItem[] {
   for (const t of tabs) {
     const st = doneMarks.get(t.name) ?? t.state;
     const num = sidebarNumber(t.name);
-    items.push({ kind: "Terminal", label: t.title || t.agent, sub: `${projectLabel(groupKey(t))} · ${t.title ? t.agent + " · " : ""}${LABEL[st]}`, st, key: num ? `⌘${num}` : "",
+    items.push({ kind: "Terminal", label: t.title || t.agent, sub: `${projectLabel(groupKey(t))} · ${t.title ? t.agent + " · " : ""}${LABEL[st]}`, st, key: num ? `⌃${num}` : "",
       run: () => { if (snap.tabs.some((x) => x.name === t.name) && !closing.has(t.name)) open(t.name); } }); // may have closed meanwhile
   }
   if (tabs.length) items.push({ kind: "Action", label: "Overview of all projects", sub: "who waits, what is not committed", key: "⌘0", run: () => toggleOverview(true) });
@@ -2969,7 +3019,7 @@ function askClose(name: string) {
   const cur = snap.tabs.find((t) => t.name === name);
   if (!cur || closing.has(name) || $<HTMLDialogElement>("kill-dlg").open) return;
   const num = sidebarNumber(cur.name);
-  const tag = `${cur.agent}${num ? ` ⌘${num}` : ""}`;
+  const tag = `${cur.agent}${num ? ` ⌃${num}` : ""}`;
   const which = `${cur.title ? `“${cur.title}” (${tag})` : tag} in ${projectLabel(cur.project || cur.cwd)}`;
   // A `claude attach` tab is only a window into a background session:
   // closing it alone leaves the session running (and listed outside Toranj).
@@ -3064,17 +3114,15 @@ window.addEventListener("keydown", (e) => {
   else if (e.key === ",") { e.preventDefault(); openSettings(); }
   else if (e.key === "0") { e.preventDefault(); if (!document.querySelector("dialog[open]")) toggleOverview(); }
   else if (e.key === "u") { e.preventDefault(); nextWaiting(); }
-  // By position too: on a Croatian keyboard [ and ] are the Š and Đ keys.
-  else if ((e.code === "BracketLeft" || e.key === "[") && !e.shiftKey) { e.preventDefault(); goBack(); }
-  else if ((e.code === "BracketRight" || e.key === "]") && !e.shiftKey) { e.preventDefault(); goForward(); }
   else if (e.key === "g") { e.preventDefault(); if (!ovShown()) toggleLayout(); }
   // macOS: the app menu handles ⌘W (see toranj://close-tab); this covers
   // platforms without that menu.
   else if (e.key === "w") { e.preventDefault(); closeCurrent(); }
-  else if (/^[1-9]$/.test(e.key)) {
+  else if (/^Digit[1-9]$/.test(e.code) && !e.altKey && !e.ctrlKey && !e.shiftKey) {
+    // ⌘1–9: the Nth group or project in the sidebar, as if clicked.
     e.preventDefault();
-    const order = [...document.querySelectorAll<HTMLButtonElement>("#tabs .sess:not(.ext)")];
-    order[Number(e.key) - 1]?.click();
+    if (document.querySelector("dialog[open]")) return;
+    sidebarUnits()[Number(e.code.slice(5)) - 1]?.rows[0]?.click();
   }
 });
 
@@ -3165,7 +3213,7 @@ function buildTips(r: Resources): Tip[] {
     const inTabs = snap.tabs.filter((t) => AGENT_NAMES.includes(t.agent)).length;
     const outside = snap.external.length;
     const idleTabs = snap.tabs.filter((t) => AGENT_NAMES.includes(t.agent) && (t.state === "idle" || t.state === "done"));
-    const idleNames = idleTabs.map((t) => { const n = sidebarNumber(t.name); return n ? `⌘${n}` : projectLabel(t.project || t.cwd); });
+    const idleNames = idleTabs.map((t) => { const n = sidebarNumber(t.name); return n ? `⌃${n}` : projectLabel(t.project || t.cwd); });
     const per = new Map<string, number>();
     for (const p of ag.procs) if (p.cwd && AGENT_NAMES.includes(p.label)) per.set(p.cwd, (per.get(p.cwd) ?? 0) + 1);
     const dup = [...per].filter(([, n]) => n > 1).sort((a, b) => b[1] - a[1])[0];
@@ -3481,11 +3529,11 @@ function gitNotes(d: GitDetails): GitNote[] {
   return notes;
 }
 
-/** Toranj tabs working inside `path`, as "⌘N" labels. */
+/** Toranj tabs working inside `path`, as "⌃N" labels. */
 function tabsIn(path: string) {
   return snap.tabs
     .filter((t) => [t.project, t.cwd].some((p) => p === path || p.startsWith(path + "/")))
-    .map((t) => { const n = sidebarNumber(t.name); return n ? `⌘${n}` : t.agent; })
+    .map((t) => { const n = sidebarNumber(t.name); return n ? `⌃${n}` : t.agent; })
     .join(", ");
 }
 
