@@ -42,7 +42,15 @@ const termOptions = {
   // Inside tmux an Option+click would send arrow keys (history, menus).
   altClickMovesCursor: false,
   scrollback: 5000,
+  // OSC 8 links (Claude prints them): ⌘-click opens them in the browser.
+  linkHandler: { activate: (e: MouseEvent, uri: string) => openLink(e, uri), allowNonHttpProtocols: false },
 };
+
+/** ⌘-click on a link in a terminal opens it in the default browser. */
+function openLink(e: MouseEvent, uri: string) {
+  if (!e.metaKey) return;
+  invoke("open_url", { url: uri }).catch((err) => console.error(err));
+}
 
 // ---------- settings ----------
 // Stored in this app's localStorage: a per-machine preference.
@@ -142,7 +150,7 @@ class Pane {
 
     const t = this.term;
     t.loadAddon(this.fit);
-    t.loadAddon(new WebLinksAddon());
+    t.loadAddon(new WebLinksAddon(openLink));
     // Programs may copy (tmux uses OSC 52 for mouse selections) but never
     // read the clipboard: an OSC 52 query would type it into the terminal.
     t.loadAddon(new ClipboardAddon(undefined, {

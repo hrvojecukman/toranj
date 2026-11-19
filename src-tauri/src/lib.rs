@@ -276,6 +276,23 @@ fn open_in_editor(path: String) -> Result<(), String> {
     cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Opens a web link from a terminal (⌘-click) in the default browser.
+/// Only plain http(s) URLs: no other schemes, spaces or control characters.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    let ok = url.len() <= 4096
+        && (url.starts_with("https://") || url.starts_with("http://"))
+        && !url.chars().any(|c| c.is_whitespace() || c.is_control());
+    if !ok {
+        return Err("not a web link".into());
+    }
+    std::process::Command::new("/usr/bin/open")
+        .arg(&url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn claude_hooks_status() -> Result<claude_hooks::HookStatus, String> {
     claude_hooks::status()
@@ -400,6 +417,7 @@ pub fn run() {
             resize,
             detach,
             open_in_editor,
+            open_url,
             play_sound,
             haptic,
             claude_statusline_status,
