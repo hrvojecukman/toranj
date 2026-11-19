@@ -2376,25 +2376,27 @@ function finishedTabs(): Tab[] {
 }
 
 // ---------- quick open ----------
-// A card that newly comes to the front of the dock listens for a few
-// seconds (a bar counts down): one press of the quick key opens its
-// terminal. Afterwards the card simply stays. It never takes a key meant
-// for something else: a key pressed within a second of other typing goes
-// to the terminal, any other key, a click elsewhere or switching apps ends
-// the countdown, it listens only when the keyboard is in a terminal (or
-// nowhere), and cards already there at launch don't count down.
+// A new card (waiting, finished or error) jumps to the front of the dock
+// and listens for a few seconds while a bar counts down: one press of the
+// quick key opens its terminal, 1–9 answers its question. The countdown
+// always runs its full time, whatever you type meanwhile; afterwards the
+// card stays and the dock goes back to its usual order. A key pressed
+// within a second of other typing is part of that typing and goes to the
+// terminal; keys only count when the keyboard is in a terminal (or
+// nowhere); cards already there at launch don't count down.
 let quick: { tab: string; start: number; ms: number; timer: number } | null = null;
 const quickSeen = new Set<string>();
 let quickReady = false; // cards present at launch aren't new
 let lastKeyAt = Date.now();
 let swallowRepeat = ""; // the quick key, held down after it opened a terminal
 
-function disarmQuick() {
+function disarmQuick(reorder = true) {
   if (!quick) return;
   clearTimeout(quick.timer);
   quick = null;
   $("wdock").querySelector(".wcard-q")?.remove();
   $("wdock").classList.remove("quick"); // shrinks back (CSS transition)
+  if (reorder) renderDock(); // back to the usual order
   requestAnimationFrame(measureDock);
   setTimeout(measureDock, 400);
 }
@@ -2422,20 +2424,12 @@ function quickBar(ms: number, elapsed: number): HTMLElement {
 
 const quickLabel = () => Object.entries(QUICK_KEYS).find(([, c]) => c === settings.quickKey)?.[0].split(" ")[0] ?? "Space";
 
-/** After every dock render: arm for a front card seen for the first time. */
-function armQuick(front: HTMLElement | null, key: string) {
-  for (const k of [...quickSeen]) if (!$("wdock").querySelector(`[data-qkey="${CSS.escape(k)}"]`)) quickSeen.delete(k);
-  if (!front || !key || quickSeen.has(key)) return;
-  quickSeen.add(key);
-  front.dataset.qkey = key;
-  if (!quickReady) return;
-  if (!settings.quickSecs || document.querySelector("dialog[open]")) return;
-  disarmQuick();
+/** Starts the countdown for `tab` (its card is moved to the front by renderDock). */
+function startQuick(tab: string) {
+  if (quick) { clearTimeout(quick.timer); $("wdock").querySelector(".wcard-q")?.remove(); }
   const ms = settings.quickSecs * 1000;
-  quick = { tab: front.dataset.tab!, start: Date.now(), ms, timer: window.setTimeout(disarmQuick, ms) };
-  front.append(quickBar(ms, 0));
+  quick = { tab, start: Date.now(), ms, timer: window.setTimeout(() => disarmQuick(), ms) };
   $("wdock").classList.add("quick"); // bigger while it counts down
-  requestAnimationFrame(measureDock);
   setTimeout(measureDock, 400);
 }
 
@@ -2448,7 +2442,7 @@ function quickTarget(): boolean {
 window.addEventListener("keydown", (e) => {
   // Capture phase: before the terminal sees the key.
   if (swallowRepeat && e.code === swallowRepeat && e.repeat) { e.preventDefault(); e.stopPropagation(); return; }
-  if (e.isComposing || e.keyCode === 229) { lastKeyAt = Date.now(); disarmQuick(); return; }
+  if (e.isComposing || e.keyCode === 229) { lastKeyAt = Date.now(); return; }
   // ⌥1–9: answer the front dock card's question, any time.
   if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && /^Digit[1-9]$/.test(e.code) && !e.repeat) {
     const front = ($("wdock").firstElementChild as HTMLElement | null)?.dataset.tab;
@@ -2490,14 +2484,9 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (["Shift", "Meta", "Control", "Alt"].includes(e.key)) return;
-  lastKeyAt = Date.now();
-  disarmQuick(); // typing something else: leave it alone
+  lastKeyAt = Date.now(); // typing: the countdown goes on, untouched
 }, true);
 window.addEventListener("keyup", (e) => { if (e.code === swallowRepeat) swallowRepeat = ""; }, true);
-window.addEventListener("blur", disarmQuick);
-window.addEventListener("pointerdown", (e) => {
-  if (quick && !(e.target as HTMLElement).closest?.(`[data-tab="${CSS.escape(quick.tab)}"]`)) disarmQuick();
-}, true);
 
 function renderDock() {
   const dock = $("wdock");
@@ -2506,6 +2495,23 @@ function renderDock() {
     ...dockTabs().map((t) => ({ t, kind: "waiting" as const })),
     ...finishedTabs().map((t) => ({ t, kind: doneMarks.get(t.name) === "error" ? "error" as const : "done" as const })),
   ];
+  // New arrivals: the newest gets the countdown. A card is new until it
+  // leaves the dock (seen, answered), so a second "done" counts again.
+  const keyOf = (e: { t: Tab; kind: string }) => `${e.t.name}|${e.kind}`;
+  const fresh = entries.filter((e) => !quickSeen.has(keyOf(e)));
+  for (const k of [...quickSeen]) if (!entries.some((e) => keyOf(e) === k)) quickSeen.delete(k);
+  fresh.forEach((e) => quickSeen.add(keyOf(e)));
+  if (quickReady && settings.quickSecs && fresh.length && !document.querySelector("dialog[open]")) {
+    const newest = fresh.reduce((a, b) => (b.t.since > a.t.since ? b : a));
+    startQuick(newest.t.name);
+  }
+  quickReady = true;
+  if (quick && !entries.some((e) => e.t.name === quick!.tab)) disarmQuick(false);
+  // While it counts down, its card is in front.
+  if (quick) {
+    const i = entries.findIndex((e) => e.t.name === quick!.tab);
+    if (i > 0) entries.unshift(...entries.splice(i, 1));
+  }
   const keep = new Set(entries.map((e) => e.t.name));
   for (const el of [...dock.children] as HTMLElement[]) if (!el.dataset.tab || !keep.has(el.dataset.tab)) el.remove();
   entries.forEach(({ t, kind }, i) => {
@@ -2585,14 +2591,8 @@ function renderDock() {
     if (i > 0) setText(el, ".wcard-more", "");
   }
   dock.hidden = n === 0;
-  if (quick && !entries.some((e) => e.t.name === quick!.tab)) disarmQuick();
-  // A rebuilt front card lost its bar: put it back where it was.
+  // The front card shows the bar, picking up where it is.
   if (quick && front?.dataset.tab === quick.tab && !front.querySelector(".wcard-q")) front.append(quickBar(quick.ms, Date.now() - quick.start));
-  else if (quick && front?.dataset.tab !== quick.tab) disarmQuick();
-  const e0 = entries[0];
-  // Stable per event (the question's text arrives later and must not re-arm).
-  armQuick(front, e0 ? `${e0.t.name}|${e0.kind}|${e0.t.since}` : "");
-  quickReady = true;
   if (front) requestAnimationFrame(measureDock);
 }
 
