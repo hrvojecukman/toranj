@@ -444,6 +444,7 @@ function sidebarNumber(name: string) {
 function focusTab(name: string) {
   paneDone.delete(name);
   if (current === name) { paintPanes(); return; }
+  recordMove({ tab: name, ov: false });
   rememberView(name);
   current = name;
   doneMarks.delete(name);
@@ -469,7 +470,57 @@ function rememberView(tab: string) {
   try { localStorage.setItem("toranj.view", tab); } catch { /* convenience only */ }
 }
 
+// ---------- back / forward ----------
+// Every jump (a dock card, ⌘U, the sidebar, a click on another pane, the
+// overview) is remembered, so ⌘[ goes back to where you came from and ⌘]
+// forward again, like a browser. The mouse's back/forward buttons too.
+interface Place { tab: string | null; ov: boolean }
+const backStack: Place[] = [];
+const fwdStack: Place[] = [];
+let navigating = false;
+const here = (): Place => ({ tab: current, ov: ovShown() });
+const samePlace = (a: Place, b: Place) => a.tab === b.tab && a.ov === b.ov;
+const placeOk = (p: Place) => p.ov ? snap.tabs.length > 0 : !!p.tab && snap.tabs.some((t) => t.name === p.tab);
+
+/** Called just before moving to `to`. */
+function recordMove(to: Place) {
+  if (navigating) return;
+  const from = here();
+  if (samePlace(from, to) || (!from.tab && !from.ov)) return;
+  if (!backStack.length || !samePlace(backStack[backStack.length - 1], from)) backStack.push(from);
+  if (backStack.length > 50) backStack.shift();
+  fwdStack.length = 0;
+}
+
+function goPlace(p: Place) {
+  navigating = true;
+  try {
+    if (p.ov) toggleOverview(true);
+    else if (p.tab) open(p.tab);
+  } finally { navigating = false; }
+}
+
+function goBack() {
+  while (backStack.length) {
+    const p = backStack.pop()!;
+    if (placeOk(p) && !samePlace(p, here())) { fwdStack.push(here()); goPlace(p); return; }
+  }
+}
+
+function goForward() {
+  while (fwdStack.length) {
+    const p = fwdStack.pop()!;
+    if (placeOk(p) && !samePlace(p, here())) { backStack.push(here()); goPlace(p); return; }
+  }
+}
+
+window.addEventListener("mouseup", (e) => {
+  if (e.button === 3) { e.preventDefault(); goBack(); }
+  else if (e.button === 4) { e.preventDefault(); goForward(); }
+});
+
 function open(name: string) {
+  recordMove({ tab: name, ov: false });
   overview = false;
   rememberView(name);
   const tab = snap.tabs.find((t) => t.name === name);
@@ -1562,6 +1613,7 @@ const ovShown = () => !$("overview").hidden;
 
 function toggleOverview(show = !ovShown()) {
   if (!show && !current) return; // nothing selected: the overview is the page
+  recordMove({ tab: current, ov: show });
   overview = show && snap.tabs.length > 0;
   if (overview) rememberView("");
   render();
@@ -3012,6 +3064,9 @@ window.addEventListener("keydown", (e) => {
   else if (e.key === ",") { e.preventDefault(); openSettings(); }
   else if (e.key === "0") { e.preventDefault(); if (!document.querySelector("dialog[open]")) toggleOverview(); }
   else if (e.key === "u") { e.preventDefault(); nextWaiting(); }
+  // By position too: on a Croatian keyboard [ and ] are the Š and Đ keys.
+  else if ((e.code === "BracketLeft" || e.key === "[") && !e.shiftKey) { e.preventDefault(); goBack(); }
+  else if ((e.code === "BracketRight" || e.key === "]") && !e.shiftKey) { e.preventDefault(); goForward(); }
   else if (e.key === "g") { e.preventDefault(); if (!ovShown()) toggleLayout(); }
   // macOS: the app menu handles ⌘W (see toranj://close-tab); this covers
   // platforms without that menu.
