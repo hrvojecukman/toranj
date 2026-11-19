@@ -2277,10 +2277,10 @@ function finishedTabs(): Tab[] {
 // A card that newly comes to the front of the dock listens for a few
 // seconds (a bar counts down): one press of the quick key opens its
 // terminal. Afterwards the card simply stays. It never takes a key meant
-// for something else: it doesn't arm while you type, while Toranj isn't
-// the active app, or for cards that were already there; it listens only
-// when the keyboard is in a terminal (or nowhere); and any other key, a
-// click elsewhere or switching apps ends it.
+// for something else: a key pressed within a second of other typing goes
+// to the terminal, any other key, a click elsewhere or switching apps ends
+// the countdown, it listens only when the keyboard is in a terminal (or
+// nowhere), and cards already there at launch don't count down.
 let quick: { tab: string; start: number; ms: number; timer: number } | null = null;
 const quickSeen = new Set<string>();
 let quickReady = false; // cards present at launch aren't new
@@ -2315,7 +2315,7 @@ function armQuick(front: HTMLElement | null, key: string) {
   quickSeen.add(key);
   front.dataset.qkey = key;
   if (!quickReady) return;
-  if (!settings.quickSecs || Date.now() - lastKeyAt < 1500 || !document.hasFocus() || document.querySelector("dialog[open]")) return;
+  if (!settings.quickSecs || document.querySelector("dialog[open]")) return;
   disarmQuick();
   const ms = settings.quickSecs * 1000;
   quick = { tab: front.dataset.tab!, start: Date.now(), ms, timer: window.setTimeout(disarmQuick, ms) };
@@ -2335,7 +2335,9 @@ window.addEventListener("keydown", (e) => {
   if (e.isComposing || e.keyCode === 229) { lastKeyAt = Date.now(); disarmQuick(); return; }
   if (!quick) { lastKeyAt = Date.now(); return; }
   const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
-  if (plain && !e.repeat && e.code === settings.quickKey && quickTarget()) {
+  // Right after other keys it's part of what you're typing, not a request.
+  const typing = Date.now() - lastKeyAt < 1000;
+  if (plain && !e.repeat && !typing && e.code === settings.quickKey && quickTarget()) {
     e.preventDefault();
     e.stopPropagation();
     const tab = quick.tab;
