@@ -31,6 +31,16 @@ tauri-plugin-notification = "2"
 notify = "8"
 sysinfo = { version = "0.40.3", default-features = false, features = ["system"] }
 libc = "0.2.191"
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
+qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
+tokio = { version = "1.54.1", features = ["net", "rt", "macros", "time"] }
+sha2 = "0.11.1"
+base64 = "0.23.1"
+rand = "0.10.4"
+p256 = { version = "0.14.0", features = ["ecdh", "ecdsa"] }
+hkdf = "0.13.0"
+aes-gcm = "0.11.1"
+reqwest = { version = "0.13.5", default-features = false, features = ["native-tls"] }
 
 
 
@@ -40,3 +50,8 @@ objc2 = "0.6"
 block2 = "0.6"
 objc2-foundation = { version = "0.3", features = ["NSString", "NSDictionary", "NSBundle", "NSError", "NSArray"] }
 objc2-user-notifications = { version = "0.3", features = ["UNUserNotificationCenter", "UNNotification", "UNNotificationContent", "UNNotificationRequest", "UNNotificationResponse", "UNNotificationTrigger", "UNNotificationSettings", "block2"] }
+
+[dev-dependencies]
+http-body-util = "0.1.5"
+tokio = { version = "1.54.1", features = ["rt", "macros"] }
+tower = { version = "0.5", features = ["util"] }

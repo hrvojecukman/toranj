@@ -1898,11 +1898,130 @@ $("set-sl").onclick = async () => {
   paintStatusLine();
 };
 
+// ---------- phone ----------
+interface MobileDevice { id: string; name: string; created: number; last_seen: number; push: boolean }
+interface PushPrefs { done: boolean; waiting: boolean; error: boolean; only_away: boolean }
+interface MobileStatus { enabled: boolean; running: boolean; port: number; tailscale_installed: boolean; tailscale_name: string | null; serving: boolean; funnel: boolean; url: string | null; devices: MobileDevice[]; push: PushPrefs }
+let mobile: MobileStatus | null = null;
+let mobileSeq = 0;
+let pairTimer = 0;
+
+function mobileErr(msg: string) {
+  $("set-mob-err").textContent = msg;
+  $("set-mob-err").hidden = !msg;
+}
+
+async function paintMobile(s?: MobileStatus) {
+  const seq = ++mobileSeq;
+  const b = $<HTMLButtonElement>("set-mob");
+  if (!mobile) b.disabled = true; // unknown state: don't toggle blind
+  let m: MobileStatus;
+  try { m = s ?? await invoke<MobileStatus>("mobile_status"); }
+  catch (e) { if (seq === mobileSeq) mobileErr(String(e)); return; }
+  if (seq !== mobileSeq) return; // a newer paint is on its way
+  mobile = m;
+  b.disabled = false;
+  b.setAttribute("aria-checked", String(m.enabled));
+  const note = $("set-mob-note");
+  note.replaceChildren();
+  if (!m.tailscale_installed) {
+    note.append("Uses Tailscale (free) so only your own devices can reach Toranj. Install it on this Mac and your phone and sign in with the same account. ");
+    const a = document.createElement("button");
+    a.type = "button"; a.className = "link"; a.textContent = "Get Tailscale";
+    a.onclick = () => invoke("open_url", { url: "https://tailscale.com/download" });
+    note.append(a);
+  } else if (!m.tailscale_name) {
+    note.textContent = "Open Tailscale on this Mac and sign in. Your phone needs it too, with the same account.";
+  } else if (m.enabled && m.funnel) {
+    note.textContent = "Warning: Tailscale Funnel is on for port 8443, which would put Toranj on the internet. Run “tailscale funnel 8443 off”. Pairing is blocked until then.";
+  } else if (m.enabled && m.url) {
+    note.textContent = `On your phone: ${m.url}. Only devices signed in to Tailscale with your account get through, and each needs to be paired.`;
+  } else if (m.enabled && !m.running) {
+    note.textContent = "Phone access is on, but Toranj's server isn't running. Turn it off and on again.";
+  } else if (m.enabled) {
+    note.textContent = "Tailscale is not publishing Toranj yet. Turn this off and on again; if it still fails, turn on HTTPS certificates in the Tailscale admin console (DNS page).";
+  } else {
+    note.textContent = "See your terminals, answer Claude and get notifications on your phone, through Tailscale. Nothing is reachable from the internet.";
+  }
+  $("set-mob-body").hidden = !m.enabled;
+  const devs = $("set-mob-devs");
+  devs.replaceChildren();
+  for (const d of m.devices) {
+    const row = document.createElement("div");
+    row.className = "mob-dev";
+    const n = document.createElement("span");
+    n.textContent = d.name;
+    const meta = document.createElement("small");
+    meta.textContent = `${d.push ? "notifications on" : "notifications off"} · seen ${ago(d.last_seen)} ago`;
+    const test = document.createElement("button");
+    test.type = "button"; test.className = "link"; test.textContent = "Test";
+    test.hidden = !d.push;
+    test.onclick = () => invoke("mobile_test_push", { id: d.id }).then(() => { test.textContent = "Sent"; setTimeout(() => { test.textContent = "Test"; }, 2000); }, (e) => mobileErr(String(e)));
+    const rm = document.createElement("button");
+    rm.type = "button"; rm.className = "link danger"; rm.textContent = "Remove";
+    rm.onclick = async () => { await invoke("mobile_revoke", { id: d.id }).catch((e) => mobileErr(String(e))); paintMobile(); };
+    const left = document.createElement("div");
+    left.append(n, meta);
+    row.append(left, test, rm);
+    devs.append(row);
+  }
+  $("set-mob-push").querySelectorAll<HTMLInputElement>("input[data-k]").forEach((i) => {
+    i.checked = m.push[i.dataset.k as keyof PushPrefs];
+  });
+  if (!m.enabled) hidePair();
+}
+
+function hidePair() {
+  clearInterval(pairTimer);
+  $("set-mob-pair").hidden = true;
+}
+
+$("set-mob").onclick = async () => {
+  const b = $<HTMLButtonElement>("set-mob");
+  if (!mobile) return;
+  b.disabled = true;
+  mobileErr("");
+  try { await paintMobile(await invoke<MobileStatus>("mobile_set_enabled", { on: !(mobile?.enabled ?? false) })); }
+  catch (e) { mobileErr(String(e)); paintMobile(); }
+  b.disabled = false;
+};
+$("set-mob-pairbtn").onclick = async () => {
+  mobileErr("");
+  try {
+    const p = await invoke<{ code: string; url: string; qr_svg: string; expires_in: number }>("mobile_pair");
+    $<HTMLImageElement>("set-mob-qr").src = `data:image/svg+xml,${encodeURIComponent(p.qr_svg)}`;
+    $("set-mob-url").textContent = p.url;
+    $("set-mob-code").textContent = `${p.code.slice(0, 4)} ${p.code.slice(4)}`;
+    $("set-mob-pair").hidden = false;
+    const until = Date.now() + p.expires_in * 1000;
+    clearInterval(pairTimer);
+    const tick = () => {
+      const left = Math.max(0, Math.round((until - Date.now()) / 1000));
+      $("set-mob-exp").textContent = left ? `Valid for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}, once.` : "Expired. Press “Pair a phone” again.";
+      if (!left) clearInterval(pairTimer);
+    };
+    tick();
+    pairTimer = window.setInterval(tick, 1000);
+  } catch (e) { mobileErr(String(e)); }
+};
+$("set-mob-push").addEventListener("change", () => {
+  const prefs = {} as PushPrefs;
+  $("set-mob-push").querySelectorAll<HTMLInputElement>("input[data-k]").forEach((i) => { prefs[i.dataset.k as keyof PushPrefs] = i.checked; });
+  invoke("mobile_set_push", { prefs }).catch((e) => mobileErr(String(e)));
+});
+// A phone paired or turned on notifications: show it, and drop the used code.
+void listen<string>("mobile-changed", (e) => {
+  if (e.payload === "paired") hidePair(); // the code is used up
+  if ($<HTMLDialogElement>("set-dlg").open) paintMobile();
+});
+
 function openSettings() {
   if (document.querySelector("dialog[open]")) return;
   hideMenu();
   applySettings();
   paintStatusLine();
+  mobileErr("");
+  paintMobile();
   $<HTMLDialogElement>("set-dlg").showModal();
 }
 
@@ -1940,7 +2059,7 @@ $("set-test").onclick = () => {
     b.textContent = "Send a test notification";
   }, 5000);
 };
-$("set-dlg").addEventListener("close", () => panes.get(current ?? "")?.term.focus());
+$("set-dlg").addEventListener("close", () => { hidePair(); panes.get(current ?? "")?.term.focus(); });
 lightQuery.addEventListener("change", () => { if (settings.theme === "system") applySettings(); });
 
 // ---------- quick switch (⌘K) ----------

@@ -2,6 +2,8 @@ mod claude_hooks;
 mod git;
 mod history;
 mod icons;
+mod mobile;
+mod webpush;
 mod projects;
 mod pty;
 use toranj_spool as spool;
@@ -395,6 +397,7 @@ pub fn run() {
         .setup(|app| {
             watch_spool(app.handle().clone());
             notifications::init(app.handle());
+            mobile::init(app.handle());
             install_menu(app)?;
             Ok(())
         })
@@ -426,6 +429,13 @@ pub fn run() {
             set_status_labels,
             icons::project_icon,
             history::recent_sessions,
+            mobile::mobile_status,
+            mobile::mobile_set_enabled,
+            mobile::mobile_pair,
+            mobile::mobile_revoke,
+            mobile::mobile_set_push,
+            mobile::mobile_test_push,
+            mobile::mobile_push,
             workspaces::workspace_files,
             notifications::notify_native,
             claude_hooks_status,
@@ -439,6 +449,11 @@ pub fn run() {
                 window.app_handle().state::<pty::Bridge>().detach_all();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_, event| {
+            if let tauri::RunEvent::Exit = event {
+                mobile::shutdown();
+            }
+        });
 }

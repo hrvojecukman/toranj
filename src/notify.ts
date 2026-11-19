@@ -49,6 +49,10 @@ export async function notifyTab(tab: string, title: string, kind: Kind, detail =
   const d = (kind === "waiting" ? detail.split(":")[0] : detail).split("\n")[0].trim();
   const shortDetail = d.length > 80 ? d.slice(0, 80) + "…" : d;
   const body = shortDetail ? `${TEXT[kind]}: ${shortDetail}` : TEXT[kind];
+  // Paired phones too (Toranj decides by the phone settings and whether
+  // anyone is at the Mac); never waits for it.
+  // (The desktop test notification has no tab and stays on the Mac.)
+  if (tab) void invoke("mobile_push", { tab, title, body, kind }).catch((e) => log(`mobile_push failed: ${e}`));
   // Native first: posted as Toranj, and a click opens the tab.
   const native = await invoke<boolean>("notify_native", { tab, title, body }).catch((e) => { log(`notify_native failed: ${e}`); return false; });
   log(`notify ${kind} native=${native}`);

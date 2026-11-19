@@ -240,6 +240,15 @@ fn check_command(command: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// tmux reads an argument ending in ';' as a command separator and drops
+/// the ';'. Escaped, it stays part of the text.
+fn no_sep(s: &str) -> String {
+    match s.strip_suffix(';') {
+        Some(rest) => format!("{rest}\\;"),
+        None => s.to_string(),
+    }
+}
+
 pub fn create(project: &str, cwd: &str, command: &str) -> Result<String, String> {
     check_command(command)?;
     if !Path::new(cwd).is_dir() {
@@ -281,9 +290,9 @@ pub fn create(project: &str, cwd: &str, command: &str) -> Result<String, String>
         "-e",
         &env,
     ])?;
-    run(&["set-option", "-t", &exact_pane(&name), "@toranj_project", project])?;
+    run(&["set-option", "-t", &exact_pane(&name), "@toranj_project", &no_sep(project)])?;
     if !command.trim().is_empty() {
-        run(&["send-keys", "-t", &exact_pane(&name), "-l", command])?;
+        run(&["send-keys", "-t", &exact_pane(&name), "-l", "--", &no_sep(command)])?;
         run(&["send-keys", "-t", &exact_pane(&name), "Enter"])?;
     }
     Ok(name)
@@ -457,6 +466,63 @@ pub struct Peek {
 fn screen(name: &str) -> Result<String, String> {
     run(&["capture-pane", "-p", "-J", "-t", &exact_pane(name)])
         .map_err(|_| "tab no longer exists".to_string())
+}
+
+/// The pane's screen and recent history with colors (SGR escapes), and its
+/// width, for the phone's read-only view.
+pub fn capture_color(name: &str, history: u32) -> Result<(String, u32), String> {
+    let start = format!("-{}", history.min(2000));
+    let text = run(&["capture-pane", "-p", "-e", "-J", "-S", &start, "-t", &exact_pane(name)])
+        .map_err(|_| "tab no longer exists".to_string())?;
+    let width = run(&["display-message", "-p", "-t", &exact_pane(name), "#{pane_width}"])
+        .ok()
+        .and_then(|w| w.trim().parse().ok())
+        .unwrap_or(80);
+    Ok((text, width))
+}
+
+/// Types `text` into the tab and presses Enter. It goes in as one bracketed
+/// paste (so newlines stay part of the message instead of sending it early),
+/// then Enter after a short pause, so the program doesn't take the Enter as
+/// part of the paste.
+pub fn send_text(name: &str, text: &str) -> Result<(), String> {
+    use std::io::Write;
+    if text.trim().is_empty() || text.len() > 8000 || text.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+        return Err("text not allowed".into());
+    }
+    let t = exact_pane(name);
+    // The tab must exist before anything is loaded.
+    run(&["display-message", "-p", "-t", &t, ""]).map_err(|_| "tab no longer exists".to_string())?;
+    let buf = format!("toranj-phone-{}", nonce());
+    let mut child = tmux()
+        .args(["load-buffer", "-b", &buf, "-"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("tmux did not start: {e}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
+    }
+    if !child.wait().map_err(|e| e.to_string())?.success() {
+        return Err("could not hand the text to tmux".into());
+    }
+    let pasted = run(&["paste-buffer", "-p", "-d", "-b", &buf, "-t", &t]);
+    if pasted.is_err() {
+        let _ = run(&["delete-buffer", "-b", &buf]);
+        return Err("tab no longer exists".into());
+    }
+    std::thread::sleep(std::time::Duration::from_millis(150));
+    run(&["send-keys", "-t", &t, "Enter"]).map(|_| ())
+}
+
+/// Presses one of a few named keys the phone keyboard lacks.
+pub fn send_key(name: &str, key: &str) -> Result<(), String> {
+    const KEYS: [&str; 7] = ["Escape", "Enter", "BTab", "Tab", "C-c", "Up", "Down"];
+    if !KEYS.contains(&key) {
+        return Err("key not allowed".into());
+    }
+    run(&["send-keys", "-t", &exact_pane(name), key]).map(|_| ())
 }
 
 fn clean(raw: &str) -> &str {

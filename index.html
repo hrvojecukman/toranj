@@ -135,6 +135,37 @@
         </section>
 
         <section class="set-sec">
+          <h4>Phone</h4>
+          <div class="set-switch">
+            <div>
+              <span class="set-l" id="set-mob-lbl">Use Toranj from your phone</span>
+              <p class="set-note" id="set-mob-note"></p>
+            </div>
+            <button type="button" class="switch" id="set-mob" role="switch" aria-checked="false" aria-labelledby="set-mob-lbl" aria-describedby="set-mob-note"><i></i></button>
+          </div>
+          <p class="err" id="set-mob-err" hidden></p>
+          <div id="set-mob-body" hidden>
+            <div class="mob-pair" id="set-mob-pair" hidden>
+              <img id="set-mob-qr" alt="QR code of the phone app's address" width="132" height="132" />
+              <div>
+                <p class="set-note">1. Scan with the phone's camera (or open <b id="set-mob-url"></b>).<br />2. In Safari: Share → <b>Add to Home Screen</b>, then open Toranj from there.<br />3. Type this code:</p>
+                <div class="mob-code" id="set-mob-code"></div>
+                <p class="set-note" id="set-mob-exp"></p>
+              </div>
+            </div>
+            <div class="mob-acts"><button type="button" class="btn" id="set-mob-pairbtn">Pair a phone</button></div>
+            <div class="mob-devs" id="set-mob-devs"></div>
+            <div class="mob-push" id="set-mob-push">
+              <span class="set-l">Notify the phone when an agent is</span>
+              <label><input type="checkbox" data-k="done" /> finished</label>
+              <label><input type="checkbox" data-k="waiting" /> waiting for you</label>
+              <label><input type="checkbox" data-k="error" /> stopped with an error</label>
+              <label class="mob-away"><input type="checkbox" data-k="only_away" /> Only when I'm away from the Mac (no input for 90 s)</label>
+            </div>
+          </div>
+        </section>
+
+        <section class="set-sec">
           <h4>Claude Code</h4>
           <div class="set-switch">
             <div>

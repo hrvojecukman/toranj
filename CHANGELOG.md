@@ -5,6 +5,7 @@ All notable changes to Toranj. The format follows [Keep a Changelog](https://kee
 ## [Unreleased]
 
 ### Added
+- Use Toranj from your phone (Settings → Phone). A web app you add to your Home Screen shows every terminal's status, answers Claude's questions with a tap, shows a terminal and types into it, opens new terminals (including continuing a conversation), and sends push notifications when an agent finishes, waits for you or stops with an error (optionally only when nobody is at the Mac). It is reached through Tailscale: only devices signed in with the Mac owner's Tailscale account get through, never from the internet, and each phone pairs once with a single-use code. Notifications are encrypted for the phone and sent straight from the Mac.
 - New terminal can continue a Claude conversation: with `claude` chosen, it lists the folder's recent conversations (title and when), and picking one runs `claude --resume <id>`. Conversations open in a running Claude are left out.
 
 ### Fixed
