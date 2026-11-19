@@ -55,7 +55,10 @@ function openLink(e: MouseEvent, uri: string) {
 // ---------- settings ----------
 // Stored in this app's localStorage: a per-machine preference.
 type Theme = "dark" | "light" | "system";
-interface Settings { fontSize: number; theme: Theme; sound: boolean; doneSound: string; waitSound: string }
+interface Settings { fontSize: number; theme: Theme; sound: boolean; doneSound: string; waitSound: string; quickSecs: number; quickKey: string }
+/** Quick open: how long a new dock card listens for its key (0 = off), and the keys offered. */
+const QUICK_SECS = [0, 5, 10, 20];
+const QUICK_KEYS: Record<string, string> = { Space: "Space", Return: "Enter", "→ (right arrow)": "ArrowRight", "Tab": "Tab" };
 const FONT_MIN = 10, FONT_MAX = 22;
 const DARK_TERM = { background: "#1d232b", foreground: "#d5dbe2", cursor: "#d5dbe2", selectionBackground: "#3b4b66" };
 // xterm's default ANSI colors are made for dark backgrounds: white and bright
@@ -73,7 +76,7 @@ function soundFor(kind: Kind): string {
 }
 
 function loadSettings(): Settings {
-  const d: Settings = { fontSize: 13, theme: "dark", sound: true, doneSound: "Glass", waitSound: "Ping" };
+  const d: Settings = { fontSize: 13, theme: "dark", sound: true, doneSound: "Glass", waitSound: "Ping", quickSecs: 10, quickKey: "Space" };
   try {
     const s = JSON.parse(localStorage.getItem("toranj.settings") ?? "{}");
     const fs = typeof s.fontSize === "number" ? s.fontSize : NaN;
@@ -83,6 +86,8 @@ function loadSettings(): Settings {
       sound: typeof s.sound === "boolean" ? s.sound : d.sound,
       doneSound: SOUNDS.includes(s.doneSound) ? s.doneSound : d.doneSound,
       waitSound: SOUNDS.includes(s.waitSound) ? s.waitSound : d.waitSound,
+      quickSecs: QUICK_SECS.includes(s.quickSecs) ? s.quickSecs : d.quickSecs,
+      quickKey: Object.values(QUICK_KEYS).includes(s.quickKey) ? s.quickKey : d.quickKey,
     };
   } catch { return d; }
 }
@@ -1859,7 +1864,14 @@ function applySettings() {
     b.setAttribute("aria-pressed", String(on));
   });
   for (const p of soundPickers) p.update(!settings.sound);
+  $("set-quick").querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
+    const on = Number(b.dataset.secs) === settings.quickSecs;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+  });
+  quickKeyPicker?.update(!settings.quickSecs);
 }
+let quickKeyPicker: Picker | null = null;
 
 function setFont(n: number) {
   settings.fontSize = Math.min(FONT_MAX, Math.max(FONT_MIN, n));
@@ -2041,6 +2053,13 @@ soundPickers.push(
   picker($("set-done-sound"), SOUNDS, () => settings.doneSound, pickSound("doneSound")),
   picker($("set-wait-sound"), SOUNDS, () => settings.waitSound, pickSound("waitSound")),
 );
+$("set-quick").querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
+  b.onclick = () => { settings.quickSecs = Number(b.dataset.secs); saveSettings(); applySettings(); };
+});
+quickKeyPicker = picker($("set-quick-key"), Object.keys(QUICK_KEYS), () => Object.entries(QUICK_KEYS).find(([, c]) => c === settings.quickKey)?.[0] ?? "Space", (v) => {
+  settings.quickKey = QUICK_KEYS[v] ?? "Space";
+  saveSettings(); applySettings();
+});
 $("set-sound").querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
   b.onclick = () => {
     settings.sound = b.dataset.sound === "on";
@@ -2254,6 +2273,87 @@ function finishedTabs(): Tab[] {
   return [...f.filter((t) => doneMarks.get(t.name) === "error"), ...f.filter((t) => doneMarks.get(t.name) !== "error")].slice(0, 6);
 }
 
+// ---------- quick open ----------
+// A card that newly comes to the front of the dock listens for a few
+// seconds (a bar counts down): one press of the quick key opens its
+// terminal. Afterwards the card simply stays. It never takes a key meant
+// for something else: it doesn't arm while you type, while Toranj isn't
+// the active app, or for cards that were already there; it listens only
+// when the keyboard is in a terminal (or nowhere); and any other key, a
+// click elsewhere or switching apps ends it.
+let quick: { tab: string; start: number; ms: number; timer: number } | null = null;
+const quickSeen = new Set<string>();
+let quickReady = false; // cards present at launch aren't new
+let lastKeyAt = Date.now();
+let swallowRepeat = ""; // the quick key, held down after it opened a terminal
+
+function disarmQuick() {
+  if (!quick) return;
+  clearTimeout(quick.timer);
+  quick = null;
+  $("wdock").querySelector(".wcard-q")?.remove();
+  requestAnimationFrame(measureDock);
+}
+
+/** The countdown bar, picking up where it is (`elapsed` ms in). */
+function quickBar(ms: number, elapsed: number): HTMLElement {
+  const bar = document.createElement("div");
+  bar.className = "wcard-q";
+  bar.innerHTML = `<span>Press <kbd></kbd> to open</span><i></i>`;
+  bar.querySelector("kbd")!.textContent = quickLabel();
+  bar.style.setProperty("--qms", `${ms}ms`);
+  bar.style.setProperty("--qdelay", `-${Math.max(0, elapsed)}ms`);
+  return bar;
+}
+
+const quickLabel = () => Object.entries(QUICK_KEYS).find(([, c]) => c === settings.quickKey)?.[0].split(" ")[0] ?? "Space";
+
+/** After every dock render: arm for a front card seen for the first time. */
+function armQuick(front: HTMLElement | null, key: string) {
+  for (const k of [...quickSeen]) if (!$("wdock").querySelector(`[data-qkey="${CSS.escape(k)}"]`)) quickSeen.delete(k);
+  if (!front || !key || quickSeen.has(key)) return;
+  quickSeen.add(key);
+  front.dataset.qkey = key;
+  if (!quickReady) return;
+  if (!settings.quickSecs || Date.now() - lastKeyAt < 1500 || !document.hasFocus() || document.querySelector("dialog[open]")) return;
+  disarmQuick();
+  const ms = settings.quickSecs * 1000;
+  quick = { tab: front.dataset.tab!, start: Date.now(), ms, timer: window.setTimeout(disarmQuick, ms) };
+  front.append(quickBar(ms, 0));
+  requestAnimationFrame(measureDock);
+}
+
+/** Where a key may go to the dock: a terminal, or no control at all. */
+function quickTarget(): boolean {
+  const a = document.activeElement;
+  return (!a || a === document.body || a.classList.contains("xterm-helper-textarea")) && $("ctx").hidden && !document.querySelector("dialog[open]");
+}
+
+window.addEventListener("keydown", (e) => {
+  // Capture phase: before the terminal sees the key.
+  if (swallowRepeat && e.code === swallowRepeat && e.repeat) { e.preventDefault(); e.stopPropagation(); return; }
+  if (e.isComposing || e.keyCode === 229) { lastKeyAt = Date.now(); disarmQuick(); return; }
+  if (!quick) { lastKeyAt = Date.now(); return; }
+  const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
+  if (plain && !e.repeat && e.code === settings.quickKey && quickTarget()) {
+    e.preventDefault();
+    e.stopPropagation();
+    const tab = quick.tab;
+    swallowRepeat = e.code;
+    disarmQuick();
+    open(tab);
+    return;
+  }
+  if (["Shift", "Meta", "Control", "Alt"].includes(e.key)) return;
+  lastKeyAt = Date.now();
+  disarmQuick(); // typing something else: leave it alone
+}, true);
+window.addEventListener("keyup", (e) => { if (e.code === swallowRepeat) swallowRepeat = ""; }, true);
+window.addEventListener("blur", disarmQuick);
+window.addEventListener("pointerdown", (e) => {
+  if (quick && !(e.target as HTMLElement).closest?.(`[data-tab="${CSS.escape(quick.tab)}"]`)) disarmQuick();
+}, true);
+
 function renderDock() {
   const dock = $("wdock");
   // Same order as ⌘U: waiting first, then finished ones not seen yet.
@@ -2339,6 +2439,14 @@ function renderDock() {
     if (i > 0) setText(el, ".wcard-more", "");
   }
   dock.hidden = n === 0;
+  if (quick && !entries.some((e) => e.t.name === quick!.tab)) disarmQuick();
+  // A rebuilt front card lost its bar: put it back where it was.
+  if (quick && front?.dataset.tab === quick.tab && !front.querySelector(".wcard-q")) front.append(quickBar(quick.ms, Date.now() - quick.start));
+  else if (quick && front?.dataset.tab !== quick.tab) disarmQuick();
+  const e0 = entries[0];
+  // Stable per event (the question's text arrives later and must not re-arm).
+  armQuick(front, e0 ? `${e0.t.name}|${e0.kind}|${e0.t.since}` : "");
+  quickReady = true;
   if (front) requestAnimationFrame(measureDock);
 }
 
