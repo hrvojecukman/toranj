@@ -2292,15 +2292,27 @@ function disarmQuick() {
   clearTimeout(quick.timer);
   quick = null;
   $("wdock").querySelector(".wcard-q")?.remove();
+  $("wdock").classList.remove("quick"); // shrinks back (CSS transition)
   requestAnimationFrame(measureDock);
+  setTimeout(measureDock, 400);
+}
+
+/** The prompt of a waiting dock card, if it has choices to press. */
+function cardPrompt(tab: string): Prompt | null {
+  const t = snap.tabs.find((x) => x.name === tab);
+  return t?.state === "waiting" ? peeks.get(tab)?.prompt ?? null : null;
 }
 
 /** The countdown bar, picking up where it is (`elapsed` ms in). */
 function quickBar(ms: number, elapsed: number): HTMLElement {
   const bar = document.createElement("div");
   bar.className = "wcard-q";
-  bar.innerHTML = `<span>Press <kbd></kbd> to open</span><i></i>`;
-  bar.querySelector("kbd")!.textContent = quickLabel();
+  const prompt = quick ? cardPrompt(quick.tab) : null;
+  const n = prompt?.choices.length ?? 0;
+  bar.innerHTML = n
+    ? `<span>Press <kbd>1</kbd>${n > 1 ? `–<kbd>${n}</kbd>` : ""} to answer · <kbd class="qk"></kbd> to open</span><i></i>`
+    : `<span>Press <kbd class="qk"></kbd> to open</span><i></i>`;
+  bar.querySelector(".qk")!.textContent = quickLabel();
   bar.style.setProperty("--qms", `${ms}ms`);
   bar.style.setProperty("--qdelay", `-${Math.max(0, elapsed)}ms`);
   return bar;
@@ -2320,7 +2332,9 @@ function armQuick(front: HTMLElement | null, key: string) {
   const ms = settings.quickSecs * 1000;
   quick = { tab: front.dataset.tab!, start: Date.now(), ms, timer: window.setTimeout(disarmQuick, ms) };
   front.append(quickBar(ms, 0));
+  $("wdock").classList.add("quick"); // bigger while it counts down
   requestAnimationFrame(measureDock);
+  setTimeout(measureDock, 400);
 }
 
 /** Where a key may go to the dock: a terminal, or no control at all. */
@@ -2333,8 +2347,35 @@ window.addEventListener("keydown", (e) => {
   // Capture phase: before the terminal sees the key.
   if (swallowRepeat && e.code === swallowRepeat && e.repeat) { e.preventDefault(); e.stopPropagation(); return; }
   if (e.isComposing || e.keyCode === 229) { lastKeyAt = Date.now(); disarmQuick(); return; }
+  // ⌥1–9: answer the front dock card's question, any time.
+  if (e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && /^Digit[1-9]$/.test(e.code) && !e.repeat) {
+    const front = ($("wdock").firstElementChild as HTMLElement | null)?.dataset.tab;
+    const p = front && !$("wdock").hidden ? cardPrompt(front) : null;
+    const key = e.code.slice(5);
+    if (front && p?.choices.some((c) => c.key === key) && !document.querySelector("dialog[open]")) {
+      e.preventDefault();
+      e.stopPropagation();
+      disarmQuick();
+      void answer(front, key, p.fingerprint);
+      return;
+    }
+  }
   if (!quick) { lastKeyAt = Date.now(); return; }
   const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey;
+  // 1–9 while it counts down: answer right from the card.
+  if (plain && !e.repeat && Date.now() - lastKeyAt >= 1000 && /^Digit[1-9]$/.test(e.code) && quickTarget()) {
+    const p = cardPrompt(quick.tab);
+    const key = e.code.slice(5);
+    if (p?.choices.some((c) => c.key === key)) {
+      e.preventDefault();
+      e.stopPropagation();
+      const tab = quick.tab;
+      swallowRepeat = e.code;
+      disarmQuick();
+      void answer(tab, key, p.fingerprint);
+      return;
+    }
+  }
   // Right after other keys it's part of what you're typing, not a request.
   const typing = Date.now() - lastKeyAt < 1000;
   if (plain && !e.repeat && !typing && e.code === settings.quickKey && quickTarget()) {
@@ -2415,7 +2456,8 @@ function renderDock() {
       const b = document.createElement("button");
       b.className = "btn" + (c.key === "1" ? " primary" : "");
       b.textContent = `${c.key}. ${c.label}`;
-      b.title = c.label;
+      if (front) { const k = document.createElement("kbd"); k.textContent = `⌥${c.key}`; b.append(k); }
+      b.title = front ? `${c.label} (⌥${c.key})` : c.label;
       b.disabled = busy;
       b.onclick = () => answer(t.name, c.key, prompt!.fingerprint);
       acts.append(b);

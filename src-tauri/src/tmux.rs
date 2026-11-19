@@ -581,7 +581,10 @@ fn prompt(screen: &str) -> Option<Prompt> {
         .collect();
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    context.hash(&mut h);
+    // Claude counts down on some prompts ("…automatically block this request
+    // in 1:48"): the ticking clock must not make it a different question.
+    let steady: Vec<String> = context.iter().map(|l| steady_line(l)).collect();
+    steady.hash(&mut h);
     for c in &choices {
         c.key.hash(&mut h);
         c.label.hash(&mut h);
@@ -591,6 +594,31 @@ fn prompt(screen: &str) -> Option<Prompt> {
         choices,
         fingerprint: format!("{:016x}", h.finish()),
     })
+}
+
+/// A prompt line with countdown clocks (`in 1:48`, `in 12s`) blanked out.
+fn steady_line(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(i) = rest.find("in ") {
+        out.push_str(&rest[..i + 3]);
+        rest = &rest[i + 3..];
+        let clock: usize = rest
+            .char_indices()
+            .take_while(|(_, c)| c.is_ascii_digit() || *c == ':' || *c == 's')
+            .map(|(i, c)| i + c.len_utf8())
+            .last()
+            .unwrap_or(0);
+        let c = &rest[..clock];
+        // Only clocks: "1:48" or "12s", never a plain number.
+        let is_clock = c.starts_with(|c: char| c.is_ascii_digit()) && (c.contains(':') || c.ends_with('s'));
+        if is_clock {
+            out.push('#');
+            rest = &rest[clock..];
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 pub fn peek(name: &str) -> Result<Peek, String> {
@@ -647,6 +675,18 @@ mod prompt_tests {
             prompt(PERMISSION).unwrap().fingerprint,
             prompt(&other).unwrap().fingerprint
         );
+    }
+
+    #[test]
+    fn countdown_keeps_the_fingerprint() {
+        let a = PERMISSION.replace("Push to remote", "Claude Code will automatically block this request in 1:48");
+        let b = PERMISSION.replace("Push to remote", "Claude Code will automatically block this request in 1:47");
+        assert_eq!(prompt(&a).unwrap().fingerprint, prompt(&b).unwrap().fingerprint);
+        // Other numbers still count.
+        let c = PERMISSION.replace("git push origin main", "git push origin v2");
+        assert_ne!(prompt(PERMISSION).unwrap().fingerprint, prompt(&c).unwrap().fingerprint);
+        assert_eq!(super::steady_line("block in 1:48 or in 12s, keep in place"), "block in # or in #, keep in place");
+        assert_eq!(super::steady_line("rm the 3 files in 2 dirs"), "rm the 3 files in 2 dirs");
     }
 
     #[test]

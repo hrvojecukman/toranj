@@ -533,3 +533,13 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .wcard-q i { display: block; height: 3px; margin: 6px -12px 0; background: var(--k, var(--accent)); transform-origin: left; border-radius: 0 0 0 8px; animation: wq var(--qms) linear var(--qdelay, 0ms) forwards; }
 @keyframes wq { from { transform: scaleX(1); } to { transform: scaleX(0); } }
 @media (prefers-reduced-motion: reduce) { .wcard-q i { animation-timing-function: steps(10); } }
+
+/* While quick open counts down, the front card is bigger; then it shrinks back. */
+.wdock { transition: width .35s ease; }
+.wdock .wcard:first-child { transition: font-size .35s ease, padding .35s ease, box-shadow .35s ease; }
+.wdock.quick { width: min(440px, calc(100% - 28px)); }
+.wdock.quick .wcard:first-child { font-size: 14px; padding: 14px 16px; box-shadow: 0 14px 40px rgb(0 0 0 / .55); }
+.wdock.quick .wcard:first-child .wcard-q { margin: 12px -16px -14px; padding: 8px 16px 0; font-size: 12.5px; }
+.wdock.quick .wcard:first-child .wcard-q i { margin: 8px -16px 0; height: 4px; }
+.wdock.quick .wcard:first-child .wcard-a .btn { font-size: 13.5px; padding: 6px 12px; }
+@media (prefers-reduced-motion: reduce) { .wdock, .wdock .wcard:first-child { transition: none; } }
