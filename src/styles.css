@@ -550,3 +550,15 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .proj > kbd.hk { flex: none; font: 10px var(--mono); color: var(--mute); opacity: .7; margin: 0 2px 0 6px; }
 .proj:not(.ws) > kbd.hk { margin-left: auto; }
 .proj > kbd.hk + .padd { margin-left: 0; }
+
+/* Recently closed conversations, above "New terminal". */
+#recent { margin-top: 6px; }
+.recent-head { cursor: pointer; color: var(--mute); }
+.recent-head .pn { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.sess.recent { gap: 8px; padding-top: 4px; padding-bottom: 4px; }
+.sess.recent .rc-t { flex: 1; min-width: 0; display: grid; }
+.sess.recent .rc-t b { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess.recent .rc-t small { color: var(--mute); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sess.recent .rc-x { flex: none; border: 0; background: none; color: var(--mute); font-size: 15px; line-height: 1; padding: 0 2px; cursor: pointer; visibility: hidden; }
+.sess.recent:hover .rc-x, .sess.recent:focus-within .rc-x { visibility: visible; }
+.sess.recent .rc-x:hover { color: var(--fg); }

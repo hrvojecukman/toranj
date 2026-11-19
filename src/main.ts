@@ -9,7 +9,7 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { notifyTab, onNotificationClick, playSound, setBadge, SOUNDS, type Kind } from "./notify";
 
 type State = "running" | "waiting" | "idle" | "done" | "error";
-interface Tab { name: string; project: string; cwd: string; agent: string; state: State; detail: string; title: string; since: number; background: boolean }
+interface Tab { name: string; project: string; cwd: string; agent: string; state: State; detail: string; title: string; since: number; background: boolean; session_id: string }
 interface External { name: string; cwd: string; state: State; detail: string; title: string; session_id: string; background: boolean; unlisted: boolean; pid: number }
 interface Git { branch: string; changed: number; ahead: number; behind: number }
 interface Snapshot { tabs: Tab[]; external: External[]; git: Record<string, Git> }
@@ -1299,8 +1299,145 @@ function extItem(e: External, nested: boolean, inWs = false): Item {
   };
 }
 
+// ---------- recently closed ----------
+// Claude conversations whose terminal closed (by you or by exiting), newest
+// first, so they can be picked up again with `claude --resume`. Kept in this
+// window's storage only.
+interface Closed { sid: string; project: string; cwd: string; title: string; at: number }
+const CLOSED_KEY = "toranj.closed";
+const safeSid = (s: string) => /^[0-9a-f-]{8,64}$/i.test(s);
+function loadClosed(): Closed[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(CLOSED_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((c) => c && safeSid(c.sid) && typeof c.cwd === "string" && typeof c.project === "string").slice(0, 50) : [];
+  } catch { return []; }
+}
+let closedList = loadClosed();
+function saveClosed() {
+  try { localStorage.setItem(CLOSED_KEY, JSON.stringify(closedList.slice(0, 50))); } catch { /* convenience only */ }
+}
+/** What each Claude tab held at the last refresh, to remember it when it goes. */
+const liveSessions = new Map<string, Closed>();
+
+let emptyOnce = false; // a single empty snapshot may be a tmux hiccup
+
+/** Compares this refresh with the last: a conversation counts as closed when
+ *  its tab is gone, when Claude exited in a tab that stays open, or when the
+ *  tab moved on to another conversation. Only conversations with a title
+ *  (something was said, so there is a transcript to resume) are kept. */
+function trackClosed(tabs: Tab[], external: External[]) {
+  if (!tabs.length && liveSessions.size && !emptyOnce) { emptyOnce = true; return; }
+  emptyOnce = false;
+  const byName = new Map(tabs.map((t) => [t.name, t]));
+  // Open somewhere: a Toranj tab, or outside Toranj (a background job, another terminal).
+  const running = new Set([...tabs.map((t) => t.session_id), ...external.map((e) => e.session_id)].filter(Boolean));
+  const at = Math.floor(Date.now() / 1000);
+  let changed = false;
+  const remember = (c: Closed) => {
+    if (running.has(c.sid) || !c.title) return;
+    closedList = [{ ...c, at }, ...closedList.filter((x) => x.sid !== c.sid)];
+    changed = true;
+  };
+  for (const [name, c] of [...liveSessions]) {
+    const t = byName.get(name);
+    if (!t) { liveSessions.delete(name); remember(c); continue; }
+    // Claude exited (the shell stays), or the tab holds another conversation now.
+    // An empty id while Claude still runs is just a missing status, not a close.
+    if (t.agent !== "claude" || (safeSid(t.session_id) && t.session_id !== c.sid)) { liveSessions.delete(name); remember(c); }
+  }
+  for (const t of tabs) {
+    if (t.agent === "claude" && safeSid(t.session_id)) {
+      liveSessions.set(t.name, { sid: t.session_id, project: t.project || t.cwd, cwd: t.cwd, title: t.title || liveSessions.get(t.name)?.title || "", at: 0 });
+    }
+  }
+  // A conversation open again (resumed here or elsewhere) isn't "closed" any more.
+  const before = closedList.length;
+  closedList = closedList.filter((c) => !running.has(c.sid));
+  if (changed || closedList.length !== before) saveClosed();
+}
+
+const resuming = new Set<string>();
+
+async function resumeClosed(c: Closed) {
+  const here = snap.tabs.find((t) => t.session_id === c.sid);
+  if (here) { open(here.name); return; }
+  const outside = snap.external.find((e) => e.session_id === c.sid);
+  if (outside) {
+    // Still running outside Toranj: bring it in rather than start a second Claude on it.
+    if (!outside.unlisted && (outside.background || outside.state === "idle")) askMove([outside]);
+    else showOvError(`“${c.title || projectLabel(c.project)}” is still running in another terminal.`);
+    return;
+  }
+  if (!safeSid(c.sid) || resuming.has(c.sid)) return;
+  resuming.add(c.sid);
+  try {
+    const name = await invoke<string>("create_tab", { project: c.project, cwd: c.cwd, command: `claude --resume ${c.sid}` });
+    await refresh();
+    open(name);
+    // The entry leaves the list by itself once that Claude reports the conversation.
+  } catch (e) {
+    showOvError(`Could not resume “${c.title || projectLabel(c.project)}”: ${e}`);
+  } finally {
+    resuming.delete(c.sid);
+  }
+}
+
+let recentShut = (() => { try { return localStorage.getItem("toranj.recentShut") === "1"; } catch { return false; } })();
+
+function renderRecent() {
+  const items: Item[] = [];
+  const list = closedList.slice(0, recentShut ? 0 : 8);
+  if (closedList.length) {
+    items.push({
+      key: "recent-head",
+      tag: "div",
+      fill: (h) => {
+        if (!h.firstChild) h.innerHTML = `<button class="wchev" aria-label="Collapse or expand"></button><span class="pn"></span>`;
+        h.className = "proj recent-head";
+        setText(h, ".wchev", recentShut ? "▸" : "▾");
+        setText(h, ".pn", `Recently closed · ${closedList.length}`);
+        h.title = "Claude conversations whose terminal was closed. Click one to continue it (claude --resume).";
+        h.onclick = () => {
+          recentShut = !recentShut;
+          try { localStorage.setItem("toranj.recentShut", recentShut ? "1" : "0"); } catch { /* fine */ }
+          renderRecent();
+        };
+      },
+    });
+  }
+  for (const c of list) {
+    items.push({
+      key: `r:${c.sid}`,
+      tag: "div",
+      fill: (d) => {
+        if (!d.firstChild) d.innerHTML = `<i class="pi" aria-hidden="true"></i><span class="rc-t"><b></b><small></small></span><button class="rc-x" aria-label="Remove from the list">×</button>`;
+        d.className = "sess recent";
+        d.setAttribute("role", "button");
+        d.tabIndex = 0;
+        paintIcon(d.querySelector(".pi") as HTMLElement, c.project);
+        setText(d, ".rc-t b", c.title || projectLabel(c.project));
+        setText(d, ".rc-t small", `${projectLabel(c.project)} · ${ago(c.at)} ago`);
+        d.title = `${c.title || "Claude conversation"}\n${tilde(c.cwd)}\nClick to continue it (claude --resume)`;
+        d.onclick = (e) => { if (!(e.target as HTMLElement).closest(".rc-x")) void resumeClosed(c); };
+        d.onkeydown = (e) => {
+          if (e.target !== d) return; // the × button handles its own keys
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (!e.repeat) void resumeClosed(c); }
+        };
+        (d.querySelector(".rc-x") as HTMLButtonElement).onclick = (e) => {
+          e.stopPropagation();
+          closedList = closedList.filter((x) => x.sid !== c.sid);
+          saveClosed();
+          renderRecent();
+        };
+      },
+    });
+  }
+  sync($("recent"), items);
+}
+
 function render() {
   renderDock();
+  renderRecent();
   // Same rule as showOv below; needed before the sidebar is drawn.
   // (A closed current tab falls back to a pane still on screen, see below.)
   const live = (n: string | null) => snap.tabs.some((t) => t.name === n);
@@ -1621,6 +1758,7 @@ async function loadSnapshot() {
       if (!s.tabs.some((t) => t.name === name)) { doneMarks.delete(name); paneDone.delete(name); }
     }
     firstRefresh = false;
+    trackClosed(s.tabs, s.external);
     snap = s;
     render();
     updateDock();
@@ -2204,7 +2342,7 @@ let palItems: PalItem[] = [];
 let palHits: PalItem[] = [];
 let palSel = 0;
 
-const KIND_RANK: Record<string, number> = { Terminal: 6, Action: 4, Git: 3, Outside: 3, Project: 2 };
+const KIND_RANK: Record<string, number> = { Terminal: 6, Action: 4, Git: 3, Outside: 3, Recent: 3, Project: 2 };
 const fold = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 function palAll(withProjects: boolean): PalItem[] {
@@ -2228,6 +2366,9 @@ function palAll(withProjects: boolean): PalItem[] {
       const now = snap.external.find((x) => x.session_id === e.session_id);
       if (now && !now.unlisted && !moving.has(now.session_id)) askMove([now]);
     } });
+  }
+  for (const c of closedList.slice(0, 20)) {
+    items.push({ kind: "Recent", label: `Resume: ${c.title || projectLabel(c.project)}`, sub: `${projectLabel(c.project)} · closed ${ago(c.at)} ago`, run: () => { void resumeClosed(c); } });
   }
   if (withProjects) {
     for (const p of projects) items.push({ kind: "Project", label: `New terminal in ${p.name}`, sub: tilde(p.path), run: () => { openNew(p).catch((e) => showOvError(`Projects did not load: ${e}`)); } });

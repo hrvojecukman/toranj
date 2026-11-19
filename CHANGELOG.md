@@ -5,6 +5,7 @@ All notable changes to Toranj. The format follows [Keep a Changelog](https://kee
 ## [Unreleased]
 
 ### Added
+- Recently closed: Claude conversations whose terminal closed (or whose Claude exited) are listed in the sidebar with their project icon and title, and in ⌘K. Click one to continue it with `claude --resume`; if it is still open somewhere, Toranj switches to it or offers to move it in instead.
 - ⌘1–9 opens the groups and projects in sidebar order (each header shows its number); terminals moved to ⌃1–9.
 - The back/forward keys are configurable (Settings → Keyboard): ⌘[ ⌘], ⌘← ⌘→, ⌥⌘← ⌥⌘→ or ⌃⌘← ⌃⌘→.
 - Back and forward: ⌘[ returns to the terminal (or overview) you came from, after a dock card, ⌘U, the sidebar or a click on another pane; ⌘] goes forward again. On a Croatian keyboard these are ⌘Š and ⌘Đ. The mouse's back/forward buttons work too.

@@ -22,6 +22,9 @@ pub struct TabStatus {
     /// The tab only shows a `claude --bg` session (`claude attach`): closing
     /// the tab leaves that session running unless it is stopped too.
     pub background: bool,
+    /// The Claude conversation in this tab ("" when unknown or not Claude),
+    /// so a closed tab can be resumed later.
+    pub session_id: String,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -307,6 +310,7 @@ pub fn snapshot(sessions: &[Session]) -> Snapshot {
                     title: row_title(r),
                     since: s.activity,
                     background: !s.attached.is_empty(),
+                    session_id: r.session_id.clone().filter(|id| safe_id(id)).unwrap_or_default(),
                 };
             }
             // Generic adapter.
@@ -343,6 +347,7 @@ pub fn snapshot(sessions: &[Session]) -> Snapshot {
                 title: String::new(),
                 since: s.activity,
                 background: !s.attached.is_empty(),
+                session_id: String::new(),
             }
         })
         .collect();
