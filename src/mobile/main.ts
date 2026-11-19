@@ -84,6 +84,7 @@ function route() {
   viewGen++;
   window.scrollTo(0, 0);
   if (!token()) return pairView();
+  if (codeFromUrl()) history.replaceState(null, "", "/"); // already paired
   const hash = location.hash.slice(1);
   const p = new URLSearchParams(hash);
   if (p.get("tab")) return termView(p.get("tab")!);
@@ -115,13 +116,52 @@ function poll(fn: () => Promise<void> | void, ms: number): () => void {
 }
 
 // ---------- pairing ----------
-function pairView() {
+/** The pairing code from the QR (`#pair=CODE`), if the app was opened with one. */
+function codeFromUrl(): string {
+  return new URLSearchParams(location.hash.slice(1)).get("pair") ?? "";
+}
+
+const isIos = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+/** Safari's Share icon (a box with an arrow up), drawn so the steps match what's on screen. */
+function shareIcon(): SVGSVGElement {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", "ico");
+  for (const d of ["M12 3v12", "M8 7l4-4 4 4", "M6 11H5v10h14V11h-1"]) {
+    const path = document.createElementNS(ns, "path");
+    path.setAttribute("d", d);
+    svg.append(path);
+  }
+  return svg;
+}
+
+/** In Safari on an iPhone: only how to add Toranj to the Home Screen.
+ *  Pairing happens once, in the Home Screen app (it has its own storage,
+ *  and only it can receive notifications). */
+function installView() {
+  const step = (n: string, ...kids: Kid[]) => h("li", {}, h("span", { class: "n" }, n), h("div", {}, ...kids));
+  app.replaceChildren(h("div", { class: "page install" },
+    h("img", { src: "/m-icon-180.png", class: "app-ico", alt: "" }),
+    h("h1", {}, "Add Toranj to your Home Screen"),
+    h("p", { class: "mute" }, "It then opens like an app and can send you notifications."),
+    h("ol", { class: "steps" },
+      step("1", "Tap ", h("b", {}, "Share "), shareIcon(), " in Safari’s toolbar (on newer iPhones it’s under ", h("b", {}, "•••"), ")."),
+      step("2", "Scroll down and tap ", h("b", {}, "Add to Home Screen"), "."),
+      step("3", "Tap ", h("b", {}, "Add"), ", then open ", h("b", {}, "Toranj"), " from your Home Screen. ", codeFromUrl() ? "It pairs itself." : "Type the code shown on the Mac."),
+    ),
+    h("button", { class: "link", type: "button", onclick: () => pairView(true) }, "Pair in this browser instead"),
+  ));
+}
+
+function pairView(force = false) {
+  if (!force && isIos() && !standalone()) return installView();
   const err = h("p", { class: "err", hidden: true });
-  const code = h("input", { id: "code", inputmode: "text", autocapitalize: "characters", autocomplete: "one-time-code", placeholder: "ABCD2345", maxlength: "12", spellcheck: "false" });
+  const code = h("input", { id: "code", inputmode: "text", autocapitalize: "characters", autocomplete: "one-time-code", placeholder: "ABCD2345", maxlength: "12", spellcheck: "false", value: codeFromUrl() });
   const name = h("input", { id: "dname", placeholder: "iPhone", maxlength: "40", value: /iPad/.test(navigator.userAgent) ? "iPad" : "iPhone" });
   const btn = h("button", { class: "btn primary big", type: "submit" }, "Pair");
-  const form = h("form", { class: "card pair", onsubmit: async (e: Event) => {
-    e.preventDefault();
+  const pair = async () => {
     err.hidden = true;
     btn.disabled = true;
     try {
@@ -129,23 +169,24 @@ function pairView() {
       if (!res.ok) throw new Error((await res.text()) || "Pairing failed.");
       const { token: t } = await res.json();
       setToken(t);
+      history.replaceState(null, "", "/"); // the code is used up
       go("");
     } catch (x) {
       err.textContent = x instanceof Error ? x.message : String(x);
       err.hidden = false;
     } finally { btn.disabled = false; }
-  } },
+  };
+  const form = h("form", { class: "card pair", onsubmit: (e: Event) => { e.preventDefault(); void pair(); } },
     h("h1", {}, "Pair with Toranj"),
-    h("p", { class: "mute" }, "On the Mac, open Toranj → Settings → Phone and press “Pair a phone”. Type the code shown there."),
+    h("p", { class: "mute" }, "On the Mac: Toranj → Settings → Phone → “Pair a phone”, then type the code shown there."),
     h("label", { for: "code" }, "Code"), code,
     h("label", { for: "dname" }, "Name of this phone"), name,
     err, btn,
   );
-  const hint = !standalone() && /iPhone|iPad/.test(navigator.userAgent)
-    ? h("div", { class: "card hint" }, h("b", {}, "Add to Home Screen first"), h("p", { class: "mute" }, "For notifications, open Toranj from your Home Screen: tap Share, then “Add to Home Screen”, and pair from there."))
-    : null;
-  app.replaceChildren(h("div", { class: "page" }, hint, form));
-  code.focus();
+  app.replaceChildren(h("div", { class: "page" }, form));
+  // Opened from the QR: pair right away, no typing.
+  if (code.value) void pair();
+  else code.focus();
 }
 
 // ---------- notifications ----------

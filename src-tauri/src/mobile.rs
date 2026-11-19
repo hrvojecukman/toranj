@@ -1022,7 +1022,9 @@ pub async fn mobile_pair() -> Result<PairInfo, String> {
         const ABC: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
         let code: String = random_bytes::<8>().iter().map(|b| ABC[(*b as usize) % ABC.len()] as char).collect();
         *PAIR.lock().unwrap_or_else(|e| e.into_inner()) = Some(Pairing { code: code.clone(), until: Instant::now() + PAIR_TTL, tries: 0 });
-        let qr = qrcode::QrCode::new(url.as_bytes()).map_err(|e| e.to_string())?;
+        // The code rides in the fragment, which browsers never send to a
+        // server: scanning opens the app ready to pair, nothing to type.
+        let qr = qrcode::QrCode::new(format!("{url}#pair={code}").as_bytes()).map_err(|e| e.to_string())?;
         let qr_svg = qr
             .render::<qrcode::render::svg::Color>()
             .min_dimensions(180, 180)
