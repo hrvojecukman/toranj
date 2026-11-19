@@ -26,10 +26,14 @@ set -g bell-action any
 set -g visual-bell off
 # A bell in the only window of a session never sets window_bell_flag, so keep our own flag.
 set-hook -g alert-bell 'set-option -w @toranj_bell 1'
-# Selecting with the mouse copies to the macOS clipboard, like iTerm's
-# "copy on select", and leaves copy mode so typing goes to the program.
-bind -T copy-mode MouseDragEnd1Pane send -X copy-pipe-and-cancel "pbcopy"
-bind -T copy-mode-vi MouseDragEnd1Pane send -X copy-pipe-and-cancel "pbcopy"
+# Selecting with the mouse copies, like iTerm's "copy on select", and leaves
+# copy mode so typing goes to the program. The copy reaches the clipboard as
+# OSC 52 through Toranj (set-clipboard on), which keeps it only after a real
+# drag: a click that tmux takes for a tiny selection or a double-click
+# doesn't replace what you copied.
+set -g copy-command ""
+bind -T copy-mode MouseDragEnd1Pane send -X copy-selection-and-cancel
+bind -T copy-mode-vi MouseDragEnd1Pane send -X copy-selection-and-cancel
 "#;
 
 /// Absolute path to tmux. GUI apps on macOS start with a minimal PATH,

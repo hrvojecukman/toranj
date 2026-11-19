@@ -125,6 +125,7 @@ class Pane {
   private readonly ro: ResizeObserver;
   attachId: number | null = null;
   private copiedTimer = 0;
+  private offMouseUp: () => void = () => {};
 
   /** A short "Copied" in the pane's corner after a selection reaches the clipboard. */
   copied() {
@@ -159,9 +160,26 @@ class Pane {
     t.loadAddon(new WebLinksAddon(openLink));
     // Programs may copy (tmux uses OSC 52 for mouse selections) but never
     // read the clipboard: an OSC 52 query would type it into the terminal.
+    // A copy right after a plain click (no drag) is a click tmux or the
+    // program took for a selection: dropped, so the clipboard keeps what you
+    // copied. Copies without the mouse (e.g. Claude's /copy) go through.
+    let down: { x: number; y: number } | null = null;
+    let lastUp = { at: 0, dragged: false };
+    let dragged = false;
+    this.host.addEventListener("mousedown", (e) => { if (e.button === 0) { down = { x: e.clientX, y: e.clientY }; dragged = false; } }, true);
+    this.host.addEventListener("mousemove", (e) => {
+      if (down && (e.buttons & 1) && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) dragged = true;
+    }, true);
+    const onUp = (e: MouseEvent) => { if (e.button === 0 && down) { lastUp = { at: Date.now(), dragged }; down = null; } };
+    window.addEventListener("mouseup", onUp, true);
+    this.offMouseUp = () => window.removeEventListener("mouseup", onUp, true);
     t.loadAddon(new ClipboardAddon(undefined, {
       readText: () => "",
-      writeText: (_sel, text) => navigator.clipboard.writeText(text).then(() => this.copied()),
+      writeText: (_sel, text) => {
+        const clickOnly = Date.now() - lastUp.at < 1500 && !lastUp.dragged;
+        if (clickOnly || down || !text) return Promise.resolve();
+        return navigator.clipboard.writeText(text).then(() => this.copied());
+      },
     }));
     const uni = new Unicode11Addon();
     t.loadAddon(uni);
@@ -234,6 +252,7 @@ class Pane {
 
   dispose() {
     this.disposed = true;
+    this.offMouseUp();
     if (this.attachId !== null) invoke("detach", { id: this.attachId });
     this.attachId = null;
     this.ro.disconnect();
