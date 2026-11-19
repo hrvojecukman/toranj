@@ -390,6 +390,7 @@ fn router() -> Router {
         .route("/api/kill", post(api_kill))
         .route("/api/push/subscribe", post(api_subscribe))
         .route("/api/push/test", post(api_push_test))
+        .route("/toranj.mobileconfig", get(webclip))
         .fallback(get(static_file))
         .layer(axum::middleware::from_fn(guard))
 }
@@ -497,6 +498,82 @@ fn mobile_asset(app: &tauri::AppHandle, path: &str) -> bool {
     let ok_name = path.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-/".contains(&b)) && !path.contains("..");
     let asset = path.starts_with("assets/") && !path.starts_with("assets/main-") && (path.ends_with(".js") || path.ends_with(".css"));
     ok_name && (fixed || asset) && keys.contains(path)
+}
+
+#[derive(Deserialize)]
+struct ClipQ {
+    #[serde(default)]
+    code: String,
+}
+
+/// A configuration profile with a Home Screen web clip for this server, the
+/// way TestFlight-style distribution pages add their icon: one tap, then
+/// Install in Settings. The clip opens the app full screen; a pairing code
+/// from the QR rides along so the clip pairs itself. Holds nothing secret:
+/// the code is the one the phone already has, and the guard still applies.
+async fn webclip(h: HeaderMap, Query(q): Query<ClipQ>) -> Response {
+    let host = h.get(header::HOST).and_then(|v| v.to_str().ok()).unwrap_or("").to_ascii_lowercase();
+    let ts_host = with_cfg(|c| c.ts_host.clone());
+    if ts_host.is_empty() || host.strip_suffix(&format!(":{TS_PORT}")).unwrap_or(&host) != ts_host {
+        return (StatusCode::BAD_REQUEST, "open this from the phone app").into_response();
+    }
+    let code: String = q.code.chars().filter(|c| c.is_ascii_alphanumeric()).take(12).collect();
+    let url = if code.is_empty() {
+        format!("https://{ts_host}:{TS_PORT}/")
+    } else {
+        format!("https://{ts_host}:{TS_PORT}/#pair={code}")
+    };
+    let icon = APP
+        .get()
+        .and_then(|a| a.asset_resolver().get("m-icon-180.png".into()))
+        .map(|a| base64::engine::general_purpose::STANDARD.encode(&a.bytes))
+        .unwrap_or_default();
+    let body = webclip_profile(&url, &icon, &uuid(), &uuid());
+    let mut res = (StatusCode::OK, body).into_response();
+    res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/x-apple-aspen-config"));
+    res.headers_mut().insert(header::CONTENT_DISPOSITION, HeaderValue::from_static("attachment; filename=\"Toranj.mobileconfig\""));
+    res
+}
+
+fn uuid() -> String {
+    let b = random_bytes::<16>();
+    let hex: String = b.iter().map(|x| format!("{x:02X}")).collect();
+    format!("{}-{}-4{}-A{}-{}", &hex[0..8], &hex[8..12], &hex[13..16], &hex[17..20], &hex[20..32])
+}
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+}
+
+fn webclip_profile(url: &str, icon_b64: &str, clip_uuid: &str, profile_uuid: &str) -> String {
+    let icon = if icon_b64.is_empty() { String::new() } else { format!("<key>Icon</key><data>{icon_b64}</data><key>Precomposed</key><true/>") };
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>PayloadContent</key><array><dict>
+<key>PayloadType</key><string>com.apple.webClip.managed</string>
+<key>PayloadVersion</key><integer>1</integer>
+<key>PayloadIdentifier</key><string>io.github.hrvojecukman.toranj.webclip</string>
+<key>PayloadUUID</key><string>{clip_uuid}</string>
+<key>PayloadDisplayName</key><string>Toranj</string>
+<key>Label</key><string>Toranj</string>
+<key>URL</key><string>{url}</string>
+<key>FullScreen</key><true/>
+<key>IsRemovable</key><true/>
+{icon}
+</dict></array>
+<key>PayloadType</key><string>Configuration</string>
+<key>PayloadVersion</key><integer>1</integer>
+<key>PayloadIdentifier</key><string>io.github.hrvojecukman.toranj.profile</string>
+<key>PayloadUUID</key><string>{profile_uuid}</string>
+<key>PayloadDisplayName</key><string>Toranj</string>
+<key>PayloadDescription</key><string>Adds Toranj to your Home Screen. It only opens Toranj on your Mac through Tailscale and changes no settings.</string>
+<key>PayloadRemovalDisallowed</key><false/>
+</dict></plist>
+"#,
+        url = xml_escape(url)
+    )
 }
 
 type ApiResult = Result<Response, (StatusCode, String)>;
@@ -1175,6 +1252,15 @@ mod tests {
         assert!(!phone_command_ok("claude --resume x; rm -rf ~"));
         assert!(!phone_command_ok("bash"));
         assert!(!phone_command_ok("claude --dangerously-skip-permissions"));
+    }
+
+    #[test]
+    fn webclip_profile_is_a_plist_with_the_url() {
+        let p = webclip_profile("https://mac.t.ts.net:8443/#pair=AB&<", "", &uuid(), &uuid());
+        assert!(p.contains("<string>https://mac.t.ts.net:8443/#pair=AB&amp;&lt;</string>"));
+        assert!(p.contains("com.apple.webClip.managed"));
+        assert!(!p.contains("<key>Icon</key>"));
+        assert_eq!(uuid().len(), 36);
     }
 
     #[test]

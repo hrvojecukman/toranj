@@ -102,3 +102,15 @@ h3 { font-size: 13px; color: var(--mute); margin: 4px 0 8px; font-weight: 600; }
 .steps li { display: flex; gap: 12px; align-items: flex-start; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; line-height: 1.5; }
 .steps .n { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 14px; }
 .ico { width: 18px; height: 18px; vertical-align: -3px; fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.install-card b { display: block; font-size: 16px; margin-bottom: 2px; }
+.install-card p { margin: 0; }
+.install-card .steps { margin: 14px 0 4px; }
+.install-card .steps li { background: var(--bg); }
+.btn.big .ico { stroke: #fff; }
+
+a.btn { display: block; text-align: center; text-decoration: none; box-sizing: border-box; }
+.install-card a.btn.big { margin-top: 12px; }
+details.alt { margin-top: 10px; text-align: left; font-size: 14px; }
+details.alt summary { color: var(--accent); cursor: pointer; padding: 6px 0; }
+details.alt p { margin: 4px 0; }

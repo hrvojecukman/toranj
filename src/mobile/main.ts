@@ -137,20 +137,46 @@ function shareIcon(): SVGSVGElement {
   return svg;
 }
 
+/** Opens the iOS share sheet from the page (the Share button itself is
+ *  tucked under ••• in Safari's toolbar). */
+function shareButton(): HTMLElement | null {
+  if (!("share" in navigator)) return null;
+  return h("button", { class: "btn big", type: "button", onclick: () => {
+    navigator.share({ title: "Toranj", url: location.origin + "/" }).catch(() => { /* closed */ });
+  } }, shareIcon(), " Share…");
+}
+
+/** One tap: a profile that puts the Toranj icon on the Home Screen. */
+function installButton(): HTMLElement {
+  const code = codeFromUrl();
+  return h("a", { class: "btn primary big", href: `/toranj.mobileconfig${code ? `?code=${encodeURIComponent(code)}` : ""}` }, "Add to Home Screen");
+}
+
+function installSteps(): HTMLElement {
+  const step = (n: string, ...kids: Kid[]) => h("li", {}, h("span", { class: "n" }, n), h("div", {}, ...kids));
+  return h("div", {},
+    installButton(),
+    h("ol", { class: "steps" },
+      step("1", "Tap ", h("b", {}, "Add to Home Screen"), " above, then ", h("b", {}, "Allow"), "."),
+      step("2", "Open ", h("b", {}, "Settings"), " → ", h("b", {}, "Profile Downloaded"), " (at the top) → ", h("b", {}, "Install"), "."),
+      step("3", "Open ", h("b", {}, "Toranj"), " from your Home Screen. ", codeFromUrl() ? "It pairs itself." : "If it asks for a code: on the Mac, Settings → Phone → Pair a phone."),
+    ),
+    h("details", { class: "alt" },
+      h("summary", {}, "Or add it with Safari’s Share menu"),
+      h("p", { class: "mute" }, "In Safari tap ••• (bottom right) → Share → Add to Home Screen, keep “Open as Web App” on, tap Add."),
+      shareButton()),
+  );
+}
+
 /** In Safari on an iPhone: only how to add Toranj to the Home Screen.
  *  Pairing happens once, in the Home Screen app (it has its own storage,
  *  and only it can receive notifications). */
 function installView() {
-  const step = (n: string, ...kids: Kid[]) => h("li", {}, h("span", { class: "n" }, n), h("div", {}, ...kids));
   app.replaceChildren(h("div", { class: "page install" },
     h("img", { src: "/m-icon-180.png", class: "app-ico", alt: "" }),
     h("h1", {}, "Add Toranj to your Home Screen"),
     h("p", { class: "mute" }, "It then opens like an app and can send you notifications."),
-    h("ol", { class: "steps" },
-      step("1", "Tap ", h("b", {}, "Share "), shareIcon(), " in Safari’s toolbar (on newer iPhones it’s under ", h("b", {}, "•••"), ")."),
-      step("2", "Scroll down and tap ", h("b", {}, "Add to Home Screen"), "."),
-      step("3", "Tap ", h("b", {}, "Add"), ", then open ", h("b", {}, "Toranj"), " from your Home Screen. ", codeFromUrl() ? "It pairs itself." : "Type the code shown on the Mac."),
-    ),
+    installSteps(),
     h("button", { class: "link", type: "button", onclick: () => pairView(true) }, "Pair in this browser instead"),
   ));
 }
@@ -272,7 +298,12 @@ function homeView() {
   app.replaceChildren(h("div", { class: "page" }, head, pushBox, waitBox, list));
 
   // Notifications: offer to turn them on, or a test once they are.
-  void api<Me>("/api/me").then((me) => {
+  if (isIos() && !standalone()) {
+    pushBox.replaceChildren(h("div", { class: "card install-card" },
+      h("b", {}, "Add Toranj to your Home Screen"),
+      h("p", { class: "mute" }, "Notifications only work in the Home Screen app."),
+      installSteps()));
+  } else void api<Me>("/api/me").then((me) => {
     const granted = "Notification" in window && Notification.permission === "granted";
     if (me.push && granted) return;
     const btn = h("button", { class: "btn", type: "button", onclick: async () => {
