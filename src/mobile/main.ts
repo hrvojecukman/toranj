@@ -84,7 +84,7 @@ function route() {
   viewGen++;
   window.scrollTo(0, 0);
   if (!token()) return pairView();
-  if (codeFromUrl()) history.replaceState(null, "", "/"); // already paired
+  if (codeFromUrl()) history.replaceState(null, "", "/"); // already paired, drop the used code
   const hash = location.hash.slice(1);
   const p = new URLSearchParams(hash);
   if (p.get("tab")) return termView(p.get("tab")!);
@@ -116,10 +116,16 @@ function poll(fn: () => Promise<void> | void, ms: number): () => void {
 }
 
 // ---------- pairing ----------
-/** The pairing code from the QR (`#pair=CODE`), if the app was opened with one. */
-function codeFromUrl(): string {
-  return new URLSearchParams(location.hash.slice(1)).get("pair") ?? "";
+/** A pairing code in a URL: `?pair=CODE` (the Home Screen icon) or
+ *  `#pair=CODE` (the QR code on the Mac). */
+function codeIn(url: string): string {
+  try {
+    const u = new URL(url, location.href);
+    const c = u.searchParams.get("pair") ?? new URLSearchParams(u.hash.slice(1)).get("pair") ?? "";
+    return c.replace(/[^A-Za-z0-9]/g, "").slice(0, 12);
+  } catch { return ""; }
 }
+const codeFromUrl = () => codeIn(location.href);
 
 const isIos = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
@@ -202,17 +208,59 @@ function pairView(force = false) {
       err.hidden = false;
     } finally { btn.disabled = false; }
   };
+  const scan = h("button", { class: "btn primary big", type: "button", onclick: () => void scanQr((c) => { code.value = c; void pair(); }) }, "Scan the QR code on the Mac");
   const form = h("form", { class: "card pair", onsubmit: (e: Event) => { e.preventDefault(); void pair(); } },
     h("h1", {}, "Pair with Toranj"),
-    h("p", { class: "mute" }, "On the Mac: Toranj → Settings → Phone → “Pair a phone”, then type the code shown there."),
-    h("label", { for: "code" }, "Code"), code,
+    h("p", { class: "mute" }, "On the Mac: Toranj → Settings → Phone → “Pair a phone”. Then scan the QR code shown there, or type its code."),
+    scan,
+    h("label", { for: "code" }, "Or type the code"), code,
     h("label", { for: "dname" }, "Name of this phone"), name,
     err, btn,
   );
   app.replaceChildren(h("div", { class: "page" }, form));
-  // Opened from the QR: pair right away, no typing.
+  // Opened with a code: pair right away, no typing.
   if (code.value) void pair();
-  else code.focus();
+}
+
+/** Full-screen camera that reads the Mac's QR code and hands back its
+ *  pairing code. The decoder is loaded only when needed. */
+async function scanQr(done: (code: string) => void) {
+  if (!navigator.mediaDevices?.getUserMedia) { toast("This browser can't use the camera.", true); return; }
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+  } catch {
+    toast("Camera not allowed. Type the code instead.", true);
+    return;
+  }
+  const { default: jsQR } = await import("jsqr");
+  const video = h("video", { playsinline: true, muted: true, autoplay: true });
+  video.srcObject = stream;
+  const hint = h("p", {}, "Point the camera at the QR code in Toranj’s Settings on the Mac.");
+  let live = true;
+  const close = () => { live = false; stream.getTracks().forEach((t) => t.stop()); overlay.remove(); };
+  const overlay = h("div", { class: "scanner" }, video, h("div", { class: "frame" }), hint,
+    h("button", { class: "btn", type: "button", onclick: close }, "Cancel"));
+  document.body.append(overlay);
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+  const tick = () => {
+    if (!live) return;
+    if (video.readyState >= 2 && video.videoWidth) {
+      // A smaller frame decodes faster and is plenty for a screen QR.
+      const scale = Math.min(1, 640 / video.videoWidth);
+      canvas.width = Math.round(video.videoWidth * scale);
+      canvas.height = Math.round(video.videoHeight * scale);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const hit = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
+      const c = hit ? codeIn(hit.data) : "";
+      if (c) { close(); done(c); return; }
+      if (hit) hint.textContent = "That QR code isn't Toranj's pairing code.";
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
 }
 
 // ---------- notifications ----------

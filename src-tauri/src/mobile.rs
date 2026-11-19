@@ -518,21 +518,94 @@ async fn webclip(h: HeaderMap, Query(q): Query<ClipQ>) -> Response {
         return (StatusCode::BAD_REQUEST, "open this from the phone app").into_response();
     }
     let code: String = q.code.chars().filter(|c| c.is_ascii_alphanumeric()).take(12).collect();
+    // In the query, not the fragment: iOS keeps a web clip's URL as given,
+    // and the app reads the code from either.
     let url = if code.is_empty() {
         format!("https://{ts_host}:{TS_PORT}/")
     } else {
-        format!("https://{ts_host}:{TS_PORT}/#pair={code}")
+        format!("https://{ts_host}:{TS_PORT}/?pair={code}")
     };
     let icon = APP
         .get()
         .and_then(|a| a.asset_resolver().get("m-icon-180.png".into()))
         .map(|a| base64::engine::general_purpose::STANDARD.encode(&a.bytes))
         .unwrap_or_default();
-    let body = webclip_profile(&url, &icon, &uuid(), &uuid());
+    let xml = webclip_profile(&url, &icon, &uuid(), &uuid());
+    let body = tauri::async_runtime::spawn_blocking(move || sign_profile(xml.as_bytes()).unwrap_or_else(|| xml.into_bytes()))
+        .await
+        .unwrap_or_default();
     let mut res = (StatusCode::OK, body).into_response();
     res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/x-apple-aspen-config"));
     res.headers_mut().insert(header::CONTENT_DISPOSITION, HeaderValue::from_static("attachment; filename=\"Toranj.mobileconfig\""));
     res
+}
+
+/// The keychain's Developer ID Application certificate (name, subject key
+/// ID), if this Mac has one. Looked up once.
+fn signing_identity() -> Option<(String, String)> {
+    static ID: OnceLock<Option<(String, String)>> = OnceLock::new();
+    ID.get_or_init(|| {
+        let out = std::process::Command::new("/usr/bin/security").args(["find-identity", "-v", "-p", "codesigning"]).output().ok()?;
+        let text = String::from_utf8_lossy(&out.stdout);
+        let name = text.lines().find_map(|l| {
+            let start = l.find("\"Developer ID Application: ")? + 1;
+            let end = l[start..].find('"')? + start;
+            Some(l[start..end].to_string())
+        })?;
+        let pem = std::process::Command::new("/usr/bin/security").args(["find-certificate", "-c", &name, "-p"]).output().ok()?;
+        let mut x = std::process::Command::new("/usr/bin/openssl")
+            .args(["x509", "-noout", "-text"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .ok()?;
+        {
+            use std::io::Write;
+            x.stdin.take()?.write_all(&pem.stdout).ok()?;
+        }
+        let parsed = String::from_utf8_lossy(&x.wait_with_output().ok()?.stdout).into_owned();
+        let mut lines = parsed.lines();
+        lines.find(|l| l.contains("Subject Key Identifier"))?;
+        let skid: String = lines.next()?.chars().filter(|c| c.is_ascii_hexdigit()).collect();
+        (skid.len() == 40).then_some((name, skid))
+    })
+    .clone()
+}
+
+/// Signs a profile with this Mac's Developer ID certificate (CMS, by the
+/// macOS `security` tool, the key never leaves the keychain), so iOS shows
+/// it as Verified. None when there is no such certificate or signing fails:
+/// the profile then goes out unsigned and works the same.
+fn sign_profile(xml: &[u8]) -> Option<Vec<u8>> {
+    use std::os::unix::fs::DirBuilderExt;
+    let (name, skid) = signing_identity()?;
+    let dir = std::env::temp_dir().join(format!("toranj-profile-{}", B64.encode(random_bytes::<9>())));
+    std::fs::DirBuilder::new().mode(0o700).create(&dir).ok()?;
+    let (inp, out) = (dir.join("in.mobileconfig"), dir.join("out.mobileconfig"));
+    let signed = (|| {
+        std::fs::write(&inp, xml).ok()?;
+        let ok = std::process::Command::new("/usr/bin/security")
+            .args(["cms", "-S", "-Z", &skid])
+            .arg("-i")
+            .arg(&inp)
+            .arg("-o")
+            .arg(&out)
+            .output()
+            .ok()?
+            .status
+            .success();
+        if !ok {
+            return None;
+        }
+        // Make sure it was signed by that certificate and nothing else.
+        let check = std::process::Command::new("/usr/bin/security").args(["cms", "-D", "-h", "0"]).arg("-i").arg(&out).output().ok()?;
+        let info = String::from_utf8_lossy(&check.stdout);
+        let expect = format!("signer0.id=\"{name}\"");
+        (info.contains(&expect) && info.contains("nsigners=1")).then(|| std::fs::read(&out).ok())?
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    signed
 }
 
 fn uuid() -> String {
@@ -1261,6 +1334,15 @@ mod tests {
         assert!(p.contains("com.apple.webClip.managed"));
         assert!(!p.contains("<key>Icon</key>"));
         assert_eq!(uuid().len(), 36);
+    }
+
+    #[test]
+    fn signs_profiles_when_a_developer_id_exists() {
+        // CI has no Developer ID: then profiles go out unsigned.
+        match sign_profile(b"<plist version=\"1.0\"><dict/></plist>") {
+            Some(der) => assert_eq!(der[0], 0x30, "CMS is DER"),
+            None => assert!(signing_identity().is_none()),
+        }
     }
 
     #[test]

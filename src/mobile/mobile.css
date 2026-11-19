@@ -114,3 +114,10 @@ a.btn { display: block; text-align: center; text-decoration: none; box-sizing: b
 details.alt { margin-top: 10px; text-align: left; font-size: 14px; }
 details.alt summary { color: var(--accent); cursor: pointer; padding: 6px 0; }
 details.alt p { margin: 4px 0; }
+
+/* QR scanner. */
+.scanner { position: fixed; inset: 0; z-index: 20; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: env(safe-area-inset-top) 16px calc(24px + env(safe-area-inset-bottom)); }
+.scanner video { width: 100%; max-width: 480px; aspect-ratio: 3 / 4; object-fit: cover; border-radius: 16px; }
+.scanner .frame { position: absolute; width: min(62vw, 300px); aspect-ratio: 1; border: 3px solid rgb(255 255 255 / .85); border-radius: 18px; pointer-events: none; top: 50%; left: 50%; transform: translate(-50%, -62%); }
+.scanner p { color: #fff; text-align: center; margin: 0; max-width: 320px; }
+.scanner .btn { background: rgb(255 255 255 / .15); color: #fff; border-color: transparent; }
