@@ -1115,6 +1115,8 @@ const iconAsked = new Set<string>();
 
 /** A project's color: the average of its icon, else the hue of its initial. */
 const iconColors = new Map<string, string>();
+/** Icons whose own shapes are too dark for the dark sidebar (a black logo on transparency). */
+const darkIcons = new Set<string>();
 function projectHue(proj: string) {
   let h = 0;
   for (const c of proj) h = (h * 31 + c.charCodeAt(0)) >>> 0;
@@ -1149,6 +1151,16 @@ function measureIcon(proj: string, url: string) {
         px.push([r, gg, b, Math.max(r, gg, b) - Math.min(r, gg, b)]);
       }
       if (!px.length) return;
+      // A dark logo with see-through parts vanishes on the dark sidebar: give it a light backdrop.
+      const clear = d.length / 4 - px.length;
+      const lum = px.reduce((s, [r, gg, b]) => s + 0.2126 * r + 0.7152 * gg + 0.0722 * b, 0) / px.length;
+      if (clear > d.length / 40 && lum < 80) {
+        darkIcons.add(proj);
+        render();
+        $("overview").querySelectorAll<HTMLElement>("[data-icon]").forEach((el) => {
+          if (el.dataset.proj === proj) paintIcon(el, proj);
+        });
+      }
       px.sort((a, b) => b[3] - a[3]);
       const top = px.slice(0, Math.max(1, Math.ceil(px.length / 3)));
       const avg = [0, 1, 2].map((k) => Math.round(top.reduce((s, p) => s + p[k], 0) / top.length));
@@ -1177,16 +1189,19 @@ function paintIcon(el: HTMLElement, proj: string) {
       });
   }
   const url = icons.get(proj);
-  const key = url ? `img:${proj}` : `letter:${proj}`;
+  const dark = darkIcons.has(proj);
+  const key = url ? `img:${proj}:${dark}` : `letter:${proj}`;
   if (el.dataset.k === key) return;
   el.dataset.k = key;
   if (url) {
     el.classList.remove("letter");
+    el.classList.toggle("dark", dark);
     el.style.removeProperty("--h");
     el.innerHTML = `<img src="${url}" alt="">`;
   } else {
     const l = projectLabel(proj).split(" / ").pop() ?? proj;
     el.classList.add("letter");
+    el.classList.remove("dark");
     el.style.setProperty("--h", String(projectHue(proj)));
     el.textContent = (l.match(/[\p{L}\p{N}]/u)?.[0] ?? "?").toUpperCase();
   }
