@@ -392,6 +392,17 @@ fn tmux_available() -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // One Toranj at a time: a second copy (another build, a notification
+        // click) would get no access to the first one's saved state and show
+        // every terminal as outside. Opening it again focuses this window.
+        // Registered first, so a second copy exits before doing anything.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_notification::init())
         .manage(pty::Bridge::default())
         .setup(|app| {
