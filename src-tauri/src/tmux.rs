@@ -489,14 +489,35 @@ pub fn capture_color(name: &str, history: u32) -> Result<(String, u32), String> 
 /// paste (so newlines stay part of the message instead of sending it early),
 /// then Enter after a short pause, so the program doesn't take the Enter as
 /// part of the paste.
-pub fn send_text(name: &str, text: &str) -> Result<(), String> {
-    use std::io::Write;
-    if text.trim().is_empty() || text.len() > 8000 || text.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+///
+/// Files come first: each path goes in as a paste of its own, the way
+/// dropping a file on a terminal does, so Claude Code attaches an image
+/// instead of only reading its path. Text may be empty when there are files.
+pub fn send_with_files(name: &str, text: &str, files: &[String]) -> Result<(), String> {
+    let text_ok = text.len() <= 8000 && !text.chars().any(|c| c.is_control() && c != '\n' && c != '\t');
+    if !text_ok || (text.trim().is_empty() && files.is_empty()) {
         return Err("text not allowed".into());
     }
     let t = exact_pane(name);
     // The tab must exist before anything is loaded.
     run(&["display-message", "-p", "-t", &t, ""]).map_err(|_| "tab no longer exists".to_string())?;
+    for f in files {
+        // The path alone, as a drop pastes it; the space separating it from
+        // what follows is typed after.
+        paste(&t, f)?;
+        run(&["send-keys", "-t", &t, "-l", " "])?;
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    if !text.trim().is_empty() {
+        paste(&t, text)?;
+    }
+    std::thread::sleep(std::time::Duration::from_millis(if files.is_empty() { 150 } else { 400 }));
+    run(&["send-keys", "-t", &t, "Enter"]).map(|_| ())
+}
+
+/// One bracketed paste of `text` into pane `t`, without Enter.
+fn paste(t: &str, text: &str) -> Result<(), String> {
+    use std::io::Write;
     let buf = format!("toranj-phone-{}", nonce());
     let mut child = tmux()
         .args(["load-buffer", "-b", &buf, "-"])
@@ -511,13 +532,29 @@ pub fn send_text(name: &str, text: &str) -> Result<(), String> {
     if !child.wait().map_err(|e| e.to_string())?.success() {
         return Err("could not hand the text to tmux".into());
     }
-    let pasted = run(&["paste-buffer", "-p", "-d", "-b", &buf, "-t", &t]);
-    if pasted.is_err() {
+    if run(&["paste-buffer", "-p", "-d", "-b", &buf, "-t", t]).is_err() {
         let _ = run(&["delete-buffer", "-b", &buf]);
         return Err("tab no longer exists".into());
     }
-    std::thread::sleep(std::time::Duration::from_millis(150));
-    run(&["send-keys", "-t", &t, "Enter"]).map(|_| ())
+    Ok(())
+}
+
+/// The newest tmux paste buffer (what a program copied with OSC 52, or a
+/// mouse selection) and when it was made, unix seconds. The phone's own
+/// paste buffers don't count.
+pub fn newest_buffer() -> Option<(u64, String)> {
+    let sep = nonce();
+    let list = run(&["list-buffers", "-F", &format!("#{{buffer_created}}{sep}#{{buffer_name}}")]).ok()?;
+    let (at, name) = list
+        .lines()
+        .filter_map(|l| {
+            let (at, name) = l.split_once(sep.as_str())?;
+            Some((at.parse::<u64>().ok()?, name.to_string()))
+        })
+        .filter(|(_, n)| !n.starts_with("toranj-phone-"))
+        .max_by_key(|(at, _)| *at)?;
+    let text = run(&["show-buffer", "-b", &name]).ok()?;
+    Some((at, text))
 }
 
 /// Presses one of a few named keys the phone keyboard lacks.

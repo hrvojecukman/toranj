@@ -388,6 +388,12 @@ fn router() -> Router {
         .route("/api/send", post(api_send))
         .route("/api/create", post(api_create))
         .route("/api/kill", post(api_kill))
+        .route("/api/messages", get(api_messages))
+        .route("/api/clipboard", get(api_clipboard))
+        .route(
+            "/api/upload",
+            post(api_upload).layer(axum::extract::DefaultBodyLimit::max(crate::phone::UPLOAD_MAX + 1024)),
+        )
         .route("/api/push/subscribe", post(api_subscribe))
         .route("/api/push/test", post(api_push_test))
         .route("/toranj.mobileconfig", get(webclip))
@@ -826,16 +832,22 @@ struct SendReq {
     text: String,
     #[serde(default)]
     key: String,
+    /// Paths of this phone's uploads, attached before the text.
+    #[serde(default)]
+    files: Vec<String>,
 }
 
 async fn api_send(h: HeaderMap, Json(r): Json<SendReq>) -> ApiResult {
     auth(&h)?;
     valid_tab(&r.name)?;
+    if r.files.len() > 10 || !r.files.iter().all(|f| crate::phone::upload_ok(f)) {
+        return Err(bad("attachment not found; add it again"));
+    }
     blocking(move || {
         if !r.key.is_empty() {
             crate::tmux::send_key(&r.name, &r.key)
         } else {
-            crate::tmux::send_text(&r.name, &r.text)
+            crate::tmux::send_with_files(&r.name, &r.text, &r.files)
         }
     })
     .await?;
@@ -879,6 +891,40 @@ async fn api_kill(h: HeaderMap, Json(r): Json<NameQ>) -> ApiResult {
     valid_tab(&r.name)?;
     blocking(move || crate::tmux::kill(&r.name)).await?;
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+#[derive(Deserialize)]
+struct MessagesQ {
+    session: String,
+    #[serde(default)]
+    cwd: String,
+}
+
+/// A tab's Claude conversation as plain messages.
+async fn api_messages(h: HeaderMap, Query(q): Query<MessagesQ>) -> ApiResult {
+    auth(&h)?;
+    let m = blocking(move || crate::phone::messages(&q.session, &q.cwd)).await?;
+    Ok(Json(m).into_response())
+}
+
+/// The newest text copied on the Mac, so the phone can copy it too.
+async fn api_clipboard(h: HeaderMap) -> ApiResult {
+    auth(&h)?;
+    let c = blocking(|| Ok(crate::phone::clipboard())).await?;
+    Ok(Json(c).into_response())
+}
+
+#[derive(Deserialize)]
+struct UploadQ {
+    name: String,
+}
+
+/// A file to attach to a message, saved on the Mac; answers its path.
+async fn api_upload(h: HeaderMap, Query(q): Query<UploadQ>, body: axum::body::Bytes) -> ApiResult {
+    let device = auth(&h)?;
+    let tag = format!("{}{}", &sha_hex(&device)[..6], B64.encode(random_bytes::<6>()).replace(['-', '_'], "x"));
+    let path = blocking(move || crate::phone::save_upload(&q.name, &body, &tag)).await?;
+    Ok(Json(serde_json::json!({ "path": path })).into_response())
 }
 
 #[derive(Deserialize)]

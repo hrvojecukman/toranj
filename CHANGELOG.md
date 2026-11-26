@@ -11,6 +11,9 @@ All notable changes to Toranj. The format follows [Keep a Changelog](https://kee
 - Back and forward: ⌘[ returns to the terminal (or overview) you came from, after a dock card, ⌘U, the sidebar or a click on another pane; ⌘] goes forward again. On a Croatian keyboard these are ⌘Š and ⌘Đ. The mouse's back/forward buttons work too.
 - Quick open: when a card comes up in the dock, a bar counts down (10 s by default) and one press of Space opens that terminal. While it counts, 1–9 answers a waiting question right from the card, and the card is bigger; afterwards it shrinks back and stays, and ⌥1–9 still answers. The time (or off) and the key are in Settings. The newest card (waiting or finished) comes to the front for its countdown, which always runs its full time; a key pressed within a second of other typing goes to the terminal as usual.
 - Use Toranj from your phone (Settings → Phone). A web app you add to your Home Screen shows every terminal's status, answers Claude's questions with a tap, shows a terminal and types into it, opens new terminals (including continuing a conversation), and sends push notifications when an agent finishes, waits for you or stops with an error (optionally only when nobody is at the Mac). It is reached through Tailscale: only devices signed in with the Mac owner's Tailscale account get through, never from the internet, and each phone pairs once with a single-use code. Notifications are encrypted for the phone and sent straight from the Mac.
+- Phone: a Chat view for Claude terminals shows the conversation as messages, each with a Copy button (and one per code block); touch and hold selects part of one. The Terminal view stays a tap away, keeps a selection while it updates, has a "Select terminal text" sheet with Copy all, and an adjustable text size.
+- Phone: what's copied on the Mac (an agent's `pbcopy` or `/copy`, or anything you copy there) shows up as a bar with one-tap Copy, so it lands on the phone's clipboard too. The clipboard button on the home screen shows it in full.
+- Phone: attach photos and files to a message (the paperclip). Photos are scaled down on the phone, saved on the Mac for three days, and handed to Claude the way a dropped file is, so images arrive as images.
 - New terminal can continue a Claude conversation: with `claude` chosen, it lists the folder's recent conversations (title and when), and picking one runs `claude --resume <id>`. Conversations open in a running Claude are left out.
 
 ### Fixed
@@ -24,6 +27,7 @@ All notable changes to Toranj. The format follows [Keep a Changelog](https://kee
 - Selecting text shows a short "Copied" in the pane, since a mouse selection goes straight to the clipboard.
 
 ### Changed
+- Phone: a redesigned terminal screen: a compact header, a round Send button, Enter adds a new line (Send sends), a menu for less-used actions, and larger touch targets throughout.
 - New terminal lists workspaces (VS Code workspaces and whole folders) and projects in two labelled sections, with each workspace's folders on one line.
 
 ## [0.1.1] - 2026-11-17

@@ -51,7 +51,7 @@ pub(crate) fn project_dir(cwd: &str) -> String {
         .collect()
 }
 
-fn locate(session_id: &str, cwd: &str) -> Option<PathBuf> {
+pub(crate) fn locate(session_id: &str, cwd: &str) -> Option<PathBuf> {
     let root = crate::status::claude_config_dir().join("projects");
     let file = format!("{session_id}.jsonl");
     if !cwd.is_empty() {

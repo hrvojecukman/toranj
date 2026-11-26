@@ -3,6 +3,7 @@ mod git;
 mod history;
 mod icons;
 mod mobile;
+mod phone;
 mod webpush;
 mod projects;
 mod pty;

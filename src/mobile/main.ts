@@ -5,7 +5,7 @@
 import { renderAnsi } from "./ansi";
 
 type State = "running" | "waiting" | "idle" | "done" | "error";
-interface Tab { name: string; project: string; cwd: string; agent: string; state: State; detail: string; title: string; since: number; background: boolean }
+interface Tab { name: string; project: string; cwd: string; agent: string; state: State; detail: string; title: string; since: number; background: boolean; session_id: string }
 interface Snapshot { tabs: Tab[] }
 interface Choice { key: string; label: string }
 interface Peek { prompt: { context: string[]; choices: Choice[]; fingerprint: string } | null; lines: string[] }
@@ -79,6 +79,7 @@ let stopView: (() => void) | null = null;
 let viewGen = 0;
 
 function route() {
+  for (const close of [...openSheets]) close();
   stopView?.();
   stopView = null;
   viewGen++;
@@ -339,11 +340,18 @@ function homeView() {
   const list = h("div", { class: "list" });
   const waitBox = h("div", { class: "waits" });
   const pushBox = h("div");
-  const head = h("header", { class: "top" },
+  const [clipEl, stopClip] = clipBar();
+  const head = h("header", { class: "top sticky" },
     h("h1", {}, "Toranj"),
-    h("button", { class: "btn primary", type: "button", onclick: () => go("new") }, "+ New"),
+    h("div", { class: "top-actions" },
+      h("button", { class: "icon-btn", type: "button", "aria-label": "Mac clipboard", onclick: async () => {
+        // The text must be there before the tap that copies it.
+        if (!lastClip) lastClip = await api<Clip>("/api/clipboard").catch(() => null);
+        clipSheet();
+      } }, icon("copy")),
+      h("button", { class: "btn primary", type: "button", onclick: () => go("new") }, "+ New")),
   );
-  app.replaceChildren(h("div", { class: "page" }, head, pushBox, waitBox, list));
+  app.replaceChildren(h("div", { class: "page" }, head, clipEl, pushBox, waitBox, list));
 
   // Notifications: offer to turn them on, or a test once they are.
   if (isIos() && !standalone()) {
@@ -414,78 +422,364 @@ function homeView() {
       h("h2", {}, base(proj)),
       ...ts.map((t) => h("button", { class: `row ${t.state}`, type: "button", onclick: () => go(`tab=${encodeURIComponent(t.name)}`) },
         h("i", { class: `st ${t.state}` }),
-        h("span", { class: "rt" }, tabTitle(t)),
-        h("small", {}, t.state === "running" ? ago(t.since) : t.state === "idle" ? "" : LABEL[t.state]),
+        h("span", { class: "rt" },
+          h("span", { class: "rt-title" }, tabTitle(t)),
+          t.detail && t.state !== "idle" ? h("small", { class: "rt-detail" }, t.detail) : null),
+        h("small", { class: "rt-state" }, t.state === "running" ? ago(t.since) : t.state === "idle" ? "" : LABEL[t.state]),
+        h("span", { class: "chev", "aria-hidden": "true" }, "›"),
       )),
     )));
   };
-  stopView = poll(draw, 3000);
+  const stopDraw = poll(draw, 3000);
+  stopView = () => { stopDraw(); stopClip(); };
+}
+
+// ---------- copying ----------
+/** Copies `text` to the phone's clipboard. Call it straight from a tap:
+ *  iOS only allows it inside the gesture. */
+function copyText(text: string, what = "Copied") {
+  const fallback = () => {
+    const ta = h("textarea", { readonly: true, class: "offscreen" });
+    ta.value = text;
+    document.body.append(ta);
+    ta.select();
+    ta.setSelectionRange(0, text.length);
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch { /* not allowed */ }
+    ta.remove();
+    toast(ok ? what : "Couldn’t copy", !ok);
+  };
+  // The fallback only works inside the tap, so it isn't tried after a rejection.
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(() => toast(what), () => toast("Couldn’t copy", true));
+  else fallback();
+}
+
+const ns = "http://www.w3.org/2000/svg";
+/** A small line icon. */
+function icon(name: "copy" | "clip" | "send" | "more" | "back" | "x" | "check"): SVGSVGElement {
+  const paths: Record<string, string[]> = {
+    copy: ["M9 9h10v12H9z", "M5 15V3h10"],
+    clip: ["M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"],
+    send: ["M12 19V5", "M6 11l6-6 6 6"],
+    more: ["M5 12h.01", "M12 12h.01", "M19 12h.01"],
+    back: ["M15 5l-7 7 7 7"],
+    x: ["M6 6l12 12", "M18 6L6 18"],
+    check: ["M5 12.5l4.5 4.5L19 7"],
+  };
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("class", `ic ic-${name}`);
+  for (const d of paths[name]) {
+    const p = document.createElementNS(ns, "path");
+    p.setAttribute("d", d);
+    svg.append(p);
+  }
+  return svg;
+}
+
+/** Open sheets: they belong to the view that opened them. */
+const openSheets = new Set<() => void>();
+
+/** A bottom sheet over the page; returns its closer. */
+function sheet(title: string, ...kids: Kid[]): () => void {
+  const close = () => { openSheets.delete(close); wrap.classList.remove("show"); setTimeout(() => wrap.remove(), 200); document.removeEventListener("keydown", esc); };
+  openSheets.add(close);
+  const esc = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+  const box = h("div", { class: "sheet", role: "dialog", "aria-label": title },
+    h("div", { class: "sheet-head" }, h("b", {}, title), h("button", { class: "icon-btn", type: "button", "aria-label": "Close", onclick: close }, icon("x"))),
+    ...kids);
+  const wrap = h("div", { class: "sheet-wrap", onclick: (e: Event) => { if (e.target === wrap) close(); } }, box);
+  document.body.append(wrap);
+  document.addEventListener("keydown", esc);
+  requestAnimationFrame(() => wrap.classList.add("show"));
+  return close;
+}
+
+// ---------- the Mac's clipboard ----------
+interface Clip { text: string; from: "mac" | "terminal"; id: string }
+const CLIP_SEEN = "toranj.mobile.clipSeen";
+let lastClip: Clip | null = null;
+const clipSeen = () => { try { return localStorage.getItem(CLIP_SEEN) ?? ""; } catch { return ""; } };
+const markClipSeen = (id: string) => { try { localStorage.setItem(CLIP_SEEN, id); } catch { /* private mode */ } };
+
+/** Shows the full text the Mac copied, selectable, with Copy. */
+function clipSheet() {
+  const c = lastClip;
+  if (!c || !c.text.trim()) { toast("Nothing copied on the Mac yet."); return; }
+  const ta = h("textarea", { class: "sel-text", readonly: true });
+  ta.value = c.text;
+  const close = sheet(c.from === "terminal" ? "Copied in a terminal" : "Mac clipboard",
+    ta,
+    h("button", { class: "btn primary big", type: "button", onclick: () => { copyText(c.text); markClipSeen(c.id); close(); } }, icon("copy"), " Copy to this phone"));
+}
+
+/** A bar that appears when something new is copied on the Mac (an agent's
+ *  pbcopy or /copy, or a selection in Toranj), one tap to copy it here too.
+ *  Returns the bar and its stopper. */
+function clipBar(): [HTMLElement, () => void] {
+  const preview = h("span", { class: "clip-text" });
+  const bar = h("div", { class: "clipbar", hidden: true },
+    h("button", { class: "clip-main", type: "button", onclick: () => clipSheet() },
+      h("small", {}, "Copied on the Mac"), preview),
+    h("button", { class: "btn primary small", type: "button", onclick: () => {
+      if (!lastClip) return;
+      copyText(lastClip.text);
+      markClipSeen(lastClip.id);
+      bar.hidden = true;
+    } }, icon("copy"), " Copy"),
+    h("button", { class: "icon-btn", type: "button", "aria-label": "Dismiss", onclick: () => { if (lastClip) markClipSeen(lastClip.id); bar.hidden = true; } }, icon("x")));
+  const check = async () => {
+    const c = await api<Clip>("/api/clipboard").catch(() => null);
+    if (!c) return;
+    lastClip = c;
+    const fresh = c.text.trim() !== "" && c.id !== clipSeen();
+    if (fresh) preview.textContent = c.text.trim().replace(/\s+/g, " ").slice(0, 140);
+    bar.hidden = !fresh;
+  };
+  return [bar, poll(check, 3000)];
+}
+
+// ---------- attachments ----------
+interface Att { name: string; size: number; thumb: string; path: string; failed: boolean }
+
+/** Large photos are scaled down (and HEIC becomes JPEG) before upload:
+ *  quicker over a phone connection and within what Claude reads. */
+async function prepare(file: File): Promise<{ blob: Blob; name: string; thumb: string }> {
+  let thumb = "";
+  if (!file.type.startsWith("image/")) return { blob: file, name: file.name, thumb };
+  try {
+    const bmp = await createImageBitmap(file);
+    const draw = (max: number) => {
+      const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(bmp.width * k);
+      c.height = Math.round(bmp.height * k);
+      c.getContext("2d")!.drawImage(bmp, 0, 0, c.width, c.height);
+      return c;
+    };
+    thumb = draw(120).toDataURL("image/jpeg", 0.7);
+    const keep = /^image\/(png|jpeg|gif|webp)$/.test(file.type) && file.size < 1_500_000 && Math.max(bmp.width, bmp.height) <= 2000;
+    if (keep) return { blob: file, name: file.name, thumb };
+    const big = draw(2000);
+    const blob = await new Promise<Blob | null>((r) => big.toBlob(r, "image/jpeg", 0.86));
+    if (blob) return { blob, name: file.name.replace(/\.[^.]*$/, "") + ".jpg", thumb };
+  } catch { /* not decodable here: send as is */ }
+  return { blob: file, name: file.name, thumb };
+}
+
+async function upload(file: File): Promise<{ path: string; thumb: string; name: string }> {
+  const p = await prepare(file);
+  const res = await fetch(`/api/upload?name=${encodeURIComponent(p.name || "file")}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/octet-stream" },
+    body: p.blob,
+  });
+  if (!res.ok) throw new Error((await res.text()) || "Upload failed");
+  const { path } = await res.json();
+  return { path, thumb: p.thumb, name: p.name };
+}
+
+// ---------- chat (a Claude conversation as messages) ----------
+interface Msg { id: string; role: "user" | "assistant"; text: string; at: string }
+
+/** Message text with ``` fences as code blocks, each with its own Copy. */
+function msgBody(text: string): HTMLElement {
+  const body = h("div", { class: "mtext" });
+  const parts = text.split(/^```[^\n]*\n?/m);
+  parts.forEach((part, i) => {
+    if (i % 2 === 0) {
+      if (part.trim()) body.append(h("div", { class: "para" }, part.replace(/^\n+|\n+$/g, "")));
+    } else {
+      const code = part.replace(/\n$/, "");
+      body.append(h("div", { class: "code" },
+        h("pre", {}, code),
+        h("button", { class: "copy-code", type: "button", onclick: () => copyText(code, "Code copied") }, icon("copy"), " Copy")));
+    }
+  });
+  return body;
+}
+
+function msgEl(m: Msg): HTMLElement {
+  const time = m.at ? new Date(m.at) : null;
+  return h("div", { class: `msg ${m.role}`, "data-id": m.id },
+    msgBody(m.text),
+    h("div", { class: "mfoot" },
+      time && !isNaN(+time) ? h("small", {}, time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) : null,
+      h("button", { class: "copy-msg", type: "button", onclick: () => copyText(m.text) }, icon("copy"), " Copy")));
 }
 
 // ---------- one terminal ----------
+const MODE_KEY = "toranj.mobile.mode";
+const FONT_KEY = "toranj.mobile.font";
+const pref = (k: string, d: string) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
+const setPref = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* private mode */ } };
+
 function termView(name: string) {
+  const gen = viewGen;
   const title = h("span", { class: "tt" }, "…");
+  const sub = h("small", { class: "tsub" });
   const st = h("i", { class: "st" });
   const screen = h("pre", { class: "screen" });
+  const chat = h("div", { class: "chat" });
+  const working = h("div", { class: "working", hidden: true });
   const promptBox = h("div", { class: "prompt", hidden: true });
+  const attBox = h("div", { class: "atts", hidden: true });
   const input = h("textarea", { rows: "1", placeholder: "Message", enterkeyhint: "send", autocapitalize: "sentences" });
+  const sendBtn = h("button", { class: "send-btn", type: "button", "aria-label": "Send", disabled: true, onclick: () => void send() }, icon("send"));
+  const fileIn = h("input", { type: "file", multiple: true, hidden: true, accept: "image/*,.pdf,.txt,.md,.json,.csv,.log,.zip,*/*" });
+  const modeBtns = { chat: h("button", { type: "button" }, "Chat"), term: h("button", { type: "button" }, "Terminal") };
+  const seg = h("div", { class: "seg", hidden: true }, modeBtns.chat, modeBtns.term);
+  const [clipEl, stopClip] = clipBar();
+
+  let tab: Tab | undefined;
+  let mode: "chat" | "term" = pref(MODE_KEY, "chat") === "term" ? "term" : "chat";
+  let canChat = false;
+  let atts: Att[] = [];
+  let uploading = 0;
   let sending = false;
-  const gen = viewGen;
+  let fontPx = Math.max(9, Math.min(18, Number(pref(FONT_KEY, "12")) || 12));
+  screen.style.fontSize = `${fontPx}px`;
+
+  const refreshSend = () => { sendBtn.disabled = sending || uploading > 0 || (!input.value.trim() && !atts.some((a) => a.path)); };
+  const drawAtts = () => {
+    attBox.hidden = !atts.length;
+    attBox.replaceChildren(...atts.map((a) => h("div", { class: "att" + (a.failed ? " bad" : a.path ? "" : " busy") },
+      a.thumb ? h("img", { src: a.thumb, alt: "" }) : h("span", { class: "att-ext" }, (a.name.split(".").pop() || "file").slice(0, 4)),
+      h("span", { class: "att-name" }, a.failed ? "Failed" : a.path ? a.name : "Uploading…"),
+      h("button", { class: "att-x", type: "button", "aria-label": "Remove", onclick: () => { atts = atts.filter((x) => x !== a); drawAtts(); refreshSend(); } }, icon("x")))));
+    refreshSend();
+  };
+  fileIn.addEventListener("change", () => {
+    const files = [...(fileIn.files ?? [])].slice(0, 10 - atts.length);
+    fileIn.value = "";
+    for (const f of files) {
+      const a: Att = { name: f.name, size: f.size, thumb: "", path: "", failed: false };
+      atts.push(a);
+      uploading++;
+      upload(f).then((r) => { a.path = r.path; a.thumb = r.thumb; a.name = r.name; },
+        (x) => { a.failed = true; toast(x instanceof Error ? x.message : String(x), true); })
+        .finally(() => { uploading--; if (gen === viewGen) drawAtts(); });
+    }
+    drawAtts();
+  });
+
   const send = async () => {
     const text = input.value.trim();
-    if (!text) return;
-    if (sending) return;
+    const files = atts.filter((a) => a.path).map((a) => a.path);
+    if ((!text && !files.length) || sending || uploading) return;
     sending = true;
+    refreshSend();
     input.readOnly = true; // keeps the keyboard up, unlike disabled
     try {
-      await api("/api/send", { name, text });
+      await api("/api/send", { name, text, files });
       input.value = "";
+      atts = atts.filter((a) => !files.includes(a.path));
+      drawAtts();
       autoGrow();
       stick = true;
-      setTimeout(() => void drawScreen(), 300);
+      setTimeout(() => void refresh(), 400);
     } catch (x) { toast(x instanceof Error ? x.message : String(x), true); }
     input.readOnly = false;
     sending = false;
+    refreshSend();
   };
-  const autoGrow = () => { input.style.height = "auto"; input.style.height = `${Math.min(120, input.scrollHeight)}px`; };
-  input.addEventListener("input", autoGrow);
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } });
-  const key = (k: string, label: string) => h("button", { class: "key", type: "button", onclick: async () => {
-    try { await api("/api/send", { name, key: k }); setTimeout(() => void drawScreen(), 250); }
+  const autoGrow = () => { input.style.height = "auto"; input.style.height = `${Math.min(140, input.scrollHeight)}px`; };
+  input.addEventListener("input", () => { autoGrow(); refreshSend(); });
+  // Enter adds a line on a phone keyboard; Send sends. A hardware keyboard's
+  // Enter (no on-screen keyboard to tap Send on) sends.
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && matchMedia("(hover: hover)").matches) { e.preventDefault(); void send(); }
+  });
+  const key = (k: string, label: string, aria: string) => h("button", { class: "key", type: "button", "aria-label": aria, onclick: async () => {
+    try { await api("/api/send", { name, key: k }); setTimeout(() => void refresh(), 250); }
     catch (x) { toast(x instanceof Error ? x.message : String(x), true); }
   } }, label);
-  const menu = h("button", { class: "link", type: "button", onclick: async () => {
+
+  const close = async () => {
     const msg = tab?.background
       ? "Close this terminal? The background Claude session keeps running; stop it from the Mac."
       : "Close this terminal? Whatever runs in it is stopped.";
     if (!confirm(msg)) return;
     try { await api("/api/kill", { name }); go(""); }
     catch (x) { toast(x instanceof Error ? x.message : String(x), true); }
-  } }, "Close");
+  };
+  /** The terminal's text, plain and selectable, with Copy all. */
+  const selectSheet = () => {
+    const ta = h("textarea", { class: "sel-text mono", readonly: true });
+    ta.value = (screen.textContent ?? "").replace(/[ \t]+$/gm, "");
+    const shut = sheet("Terminal text", h("p", { class: "mute small" }, "Touch and hold to select a part, or copy all of it."), ta,
+      h("button", { class: "btn primary big", type: "button", onclick: () => { copyText(ta.value); shut(); } }, icon("copy"), " Copy all"));
+    requestAnimationFrame(() => { ta.scrollTop = ta.scrollHeight; });
+  };
+  const menuSheet = () => {
+    const item = (label: string, fn: () => void, cls = "") => h("button", { class: `menu-item ${cls}`, type: "button", onclick: () => { shut(); fn(); } }, label);
+    const size = h("div", { class: "menu-row" }, h("span", {}, "Terminal text size"),
+      h("div", { class: "stepper" },
+        h("button", { type: "button", "aria-label": "Smaller", onclick: () => setFont(fontPx - 1) }, "A−"),
+        h("button", { type: "button", "aria-label": "Larger", onclick: () => setFont(fontPx + 1) }, "A+")));
+    const shut = sheet("Terminal",
+      item("Copy from the Mac clipboard", clipSheet),
+      item("Select terminal text", () => { if (!lastText) void drawScreen(true).then(selectSheet); else selectSheet(); }),
+      item("Attach files or photos", () => fileIn.click()),
+      size,
+      item("Close terminal", () => void close(), "danger"));
+  };
+  const setFont = (px: number) => {
+    fontPx = Math.max(9, Math.min(18, px));
+    screen.style.fontSize = `${fontPx}px`;
+    setPref(FONT_KEY, String(fontPx));
+  };
+
   app.replaceChildren(h("div", { class: "term" },
-    h("header", { class: "top term-top" },
-      h("button", { class: "link back", type: "button", onclick: () => go("") }, "‹ Back"),
-      h("div", { class: "tt-wrap" }, st, title),
-      menu),
-    screen,
+    h("header", { class: "term-top" },
+      h("button", { class: "icon-btn", type: "button", "aria-label": "Back", onclick: () => go("") }, icon("back")),
+      h("div", { class: "tt-wrap" }, h("div", { class: "tt-line" }, st, title), sub),
+      h("button", { class: "icon-btn", type: "button", "aria-label": "More", onclick: menuSheet }, icon("more"))),
+    h("div", { class: "seg-wrap" }, seg),
+    h("div", { class: "body" }, chat, screen),
     h("div", { class: "dock" },
+      clipEl,
+      working,
       promptBox,
-      h("div", { class: "keys" }, key("Escape", "esc"), key("BTab", "⇧⇥"), key("Up", "↑"), key("Down", "↓"), key("Enter", "⏎"), key("C-c", "^C")),
-      h("div", { class: "send" }, input, h("button", { class: "btn primary", type: "button", onclick: () => void send() }, "Send")),
+      h("div", { class: "keys" }, key("Escape", "esc", "Escape"), key("BTab", "⇧⇥", "Shift-Tab: change mode"), key("Up", "↑", "Up"), key("Down", "↓", "Down"), key("Enter", "⏎", "Enter"), key("C-c", "⌃C", "Control-C")),
+      attBox,
+      h("div", { class: "send" },
+        h("button", { class: "icon-btn attach", type: "button", "aria-label": "Attach files or photos", onclick: () => fileIn.click() }, icon("clip")),
+        input, sendBtn, fileIn),
     ),
   ));
 
+  const setMode = (m: "chat" | "term", save = true) => {
+    mode = m;
+    if (save) setPref(MODE_KEY, m);
+    const showChat = canChat && mode === "chat";
+    chat.hidden = !showChat;
+    screen.hidden = showChat;
+    modeBtns.chat.classList.toggle("on", showChat);
+    modeBtns.term.classList.toggle("on", !showChat);
+    stick = true;
+    void refresh();
+  };
+  modeBtns.chat.addEventListener("click", () => setMode("chat"));
+  modeBtns.term.addEventListener("click", () => setMode("term"));
+
   // Stay at the bottom unless the user scrolled up to read.
   let stick = true;
-  screen.addEventListener("scroll", () => { stick = screen.scrollHeight - screen.scrollTop - screen.clientHeight < 60; });
-  let lastText = "";
-  let tab: Tab | undefined;
-  let lastPeekKey = "";
+  const scroller = () => (chat.hidden ? screen : chat);
+  for (const el of [screen, chat]) el.addEventListener("scroll", () => { if (el === scroller()) stick = el.scrollHeight - el.scrollTop - el.clientHeight < 60; });
+  const toBottom = () => { const el = scroller(); el.scrollTop = el.scrollHeight; };
+  /** A selection being made in `el`: redrawing now would drop it. */
+  const selecting = (el: HTMLElement) => {
+    const s = document.getSelection();
+    return !!s && !s.isCollapsed && s.rangeCount > 0 && el.contains(s.getRangeAt(0).commonAncestorContainer);
+  };
 
-  const drawScreen = async () => {
+  let lastText = "";
+  const drawScreen = async (force = false) => {
+    if (!force && (screen.hidden || selecting(screen))) return;
     try {
       const { text } = await api<{ text: string; cols: number }>(`/api/screen?name=${encodeURIComponent(name)}`);
-      if (gen !== viewGen) return;
+      if (gen !== viewGen || (!force && selecting(screen))) return;
       const trimmed = text.replace(/\s+$/, "");
       if (trimmed !== lastText) {
         lastText = trimmed;
@@ -496,13 +790,52 @@ function termView(name: string) {
       if (gen === viewGen && x instanceof ApiError && x.status === 404) { toast("This terminal was closed."); go(""); }
     }
   };
+
+  let shown: Msg[] = [];
+  const drawChat = async () => {
+    if (chat.hidden || !tab?.session_id || selecting(chat)) return;
+    let msgs = await api<Msg[]>(`/api/messages?session=${encodeURIComponent(tab.session_id)}&cwd=${encodeURIComponent(tab.cwd)}`).catch((x) => x as Error);
+    if (gen !== viewGen || selecting(chat)) return;
+    // A new conversation has no transcript yet.
+    if (msgs instanceof Error) { if (shown.length || !(msgs instanceof ApiError)) return; msgs = []; }
+    if (!msgs.length && !shown.length) {
+      chat.replaceChildren(h("div", { class: "chat-empty mute" }, "No messages yet. Write below to start."));
+      return;
+    }
+    // Only what changed is redrawn, so a long press on an older message isn't interrupted.
+    const same = (a: Msg, b: Msg) => a.id === b.id && a.text === b.text;
+    // The oldest messages drop off the list as new ones come: remove those first.
+    const ids = new Set(msgs.map((m) => m.id));
+    while (shown.length && !ids.has(shown[0].id)) {
+      shown = shown.slice(1);
+      chat.querySelector(".msg")?.remove();
+    }
+    let keep = 0;
+    while (keep < shown.length && keep < msgs.length && same(shown[keep], msgs[keep])) keep++;
+    if (keep === shown.length && keep === msgs.length) return;
+    if (keep === 0 || chat.querySelector(".chat-empty")) chat.replaceChildren();
+    const els = [...chat.querySelectorAll(".msg")];
+    els.slice(keep).forEach((e) => e.remove());
+    chat.append(...msgs.slice(keep).map(msgEl));
+    const grew = msgs.length > shown.length;
+    shown = msgs;
+    if (stick || grew) toBottom();
+  };
+
+  let lastPeekKey = "";
   const drawState = async () => {
     const snap = await api<Snapshot>("/api/snapshot").catch(() => null);
     if (gen !== viewGen || !snap) return;
     tab = snap.tabs.find((t) => t.name === name);
     if (!tab) { toast("This terminal was closed."); go(""); return; }
-    title.textContent = `${base(tab.project || tab.cwd)} · ${tabTitle(tab)}`;
+    title.textContent = tabTitle(tab);
+    sub.textContent = `${base(tab.project || tab.cwd)} · ${LABEL[tab.state]}`;
     st.className = `st ${tab.state}`;
+    const chatNow = tab.agent === "claude" && !!tab.session_id;
+    if (chatNow !== canChat) { canChat = chatNow; seg.hidden = !canChat; setMode(mode, false); }
+    // In chat, what the terminal shows meanwhile (Claude at work) is a line under the messages.
+    working.hidden = !(canChat && mode === "chat" && tab.state === "running");
+    if (!working.hidden) working.replaceChildren(h("i", { class: "st running" }), h("span", {}, tab.detail || "Working…"));
     if (tab.state === "waiting") {
       const k = `${tab.since}:${tab.detail}`;
       if (k !== lastPeekKey || promptBox.hidden) {
@@ -510,7 +843,9 @@ function termView(name: string) {
         const p = await peekFor(tab);
         if (gen !== viewGen) return;
         if (p?.prompt) {
-          promptBox.replaceChildren(choicesEl(tab, p.prompt, () => { promptBox.hidden = true; void drawScreen(); }));
+          promptBox.replaceChildren(
+            h("pre", { class: "ctx" }, p.prompt.context.join("\n")),
+            choicesEl(tab, p.prompt, () => { promptBox.hidden = true; void refresh(); }));
           promptBox.hidden = false;
         }
       }
@@ -519,18 +854,26 @@ function termView(name: string) {
       lastPeekKey = "";
     }
   };
+  const refresh = () => Promise.all([drawScreen(), drawChat()]);
+
   // Keep the input above the iPhone keyboard: size the view to what's visible.
   const termEl = app.querySelector<HTMLElement>(".term")!;
   const fit = () => {
     const vv = window.visualViewport;
-    if (vv) termEl.style.height = `${vv.height}px`;
-    if (stick) screen.scrollTop = screen.scrollHeight;
+    if (vv) { termEl.style.height = `${vv.height}px`; termEl.style.transform = `translateY(${vv.offsetTop}px)`; }
+    if (stick) toBottom();
   };
   window.visualViewport?.addEventListener("resize", fit);
+  window.visualViewport?.addEventListener("scroll", fit);
+  // The dock grows (a question, attachments): keep the latest in view.
+  const ro = new ResizeObserver(() => { if (stick) toBottom(); });
+  ro.observe(app.querySelector(".body")!);
+  setMode(mode, false);
   fit();
   const s1 = poll(drawScreen, 1200);
   const s2 = poll(drawState, 2500);
-  stopView = () => { s1(); s2(); window.visualViewport?.removeEventListener("resize", fit); };
+  const s3 = poll(drawChat, 2000);
+  stopView = () => { s1(); s2(); s3(); stopClip(); ro.disconnect(); window.visualViewport?.removeEventListener("resize", fit); window.visualViewport?.removeEventListener("scroll", fit); };
 }
 
 // ---------- new terminal ----------
@@ -588,7 +931,7 @@ function newView() {
     }
   });
   app.replaceChildren(h("div", { class: "page" },
-    h("header", { class: "top" }, h("button", { class: "link back", type: "button", onclick: () => go("") }, "‹ Back"), h("h1", {}, "New terminal"), h("span")),
+    h("header", { class: "top" }, h("button", { class: "icon-btn", type: "button", "aria-label": "Back", onclick: () => go("") }, icon("back")), h("h1", {}, "New terminal"), h("span", { class: "spacer" })),
     h("div", { class: "card" }, q, list),
     h("div", { class: "card" }, h("h3", {}, "Command"), chips, convBox),
     open,
