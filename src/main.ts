@@ -382,21 +382,19 @@ class Pane {
     if (p < 0) return none;
     // Claude's input box: what's in it (a suggested prompt shows there, dimmed).
     const input = text.slice(p, r2).map((l, i) => (i === 0 ? l.replace(/^\s*[>❯›]\s?/, "") : l.replace(/^\s{0,2}/, ""))).join("\n").trim();
-    // Normally a rule tops the box; while Claude offers completions (slash
-    // commands, @ files) they take that place, above the input.
+    // While Claude offers completions (slash commands, @ files) they list
+    // right above the box's top rule, the chosen one marked ❯ (indented).
     let r1 = p - 1;
     const menuRows: number[] = [];
-    if (r1 >= 0 && !rule(text[r1])) {
-      let j = p - 1;
-      for (; j >= Math.max(0, p - 16); j--) {
-        if (rule(text[j]) || /^\s*[⏺●]/.test(text[j])) break;
-        if (!text[j].trim() && j < p - 1 && !text[j + 1].trim()) break;
-      }
-      let first = j + 1, lastM = p - 1;
-      while (first <= lastM && !text[first].trim()) first++;
-      while (lastM >= first && !text[lastM].trim()) lastM--;
-      for (let i = first; i <= lastM; i++) menuRows.push(rows[i]);
-      r1 = j;
+    let top = r1;
+    // (Without a top rule the box isn't Claude's usual one: no menu then.)
+    if (r1 >= 0 && rule(text[r1])) for (let j = r1 - 1; j >= Math.max(0, r1 - 16); j--) {
+      if (!text[j].trim() || rule(text[j])) break;
+      top = j;
+    }
+    if (top < r1 && text.slice(top, r1).some((l) => /^\s{1,6}❯\s/.test(l))) {
+      for (let i = top; i < r1; i++) menuRows.push(rows[i]);
+      r1 = top;
     }
     let status = "";
     for (let i = r1 - 1; i >= Math.max(0, r1 - 3); i--) {
