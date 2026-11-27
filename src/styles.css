@@ -697,3 +697,12 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .ask-keys .btn { padding: 3px 10px; font-size: 12px; }
 .ask-keys .link { margin-left: auto; font-size: 12px; background: none; border: 0; color: var(--accent); cursor: pointer; }
 .chat-in.suggest::placeholder { color: var(--fg); opacity: .45; font-style: italic; }
+/* The message box mirrors Claude's input box; a transparent textarea on top takes the keys. */
+.chat-box { position: relative; flex: 1; min-width: 0; min-height: 36px; background: var(--term); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; cursor: text; }
+.chat-box:focus-within { border-color: var(--accent); }
+.chat-box .chat-in { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; resize: none; border: 0; padding: 0; caret-color: transparent; cursor: text; }
+.live-lines { font: var(--input-font, 15px)/1.45 var(--mono); font-size: calc(var(--input-font, 15px) - 2px); max-height: 220px; overflow: hidden; }
+.live-lines .cf-line { white-space: pre-wrap; word-break: break-word; min-height: 1.45em; }
+.live-lines:empty::before { content: "Claude's input — every key goes to Claude, as in the terminal"; color: var(--mute); font-family: var(--sans); font-size: 13px; }
+.chat-box:not(:focus-within) .live-lines span[style*="background:var(--fg)"] { background: transparent !important; color: inherit !important; outline: 1px solid var(--mute); }
+.chat-compose { align-items: stretch; }

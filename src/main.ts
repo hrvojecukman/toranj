@@ -102,7 +102,9 @@ const termTheme = () => (isLight() ? LIGHT_TERM : DARK_TERM);
 
 const ANSI_NAMES = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;
 /** CSS for an xterm cell's color and weight (the chat shows terminal lines). */
-function cellStyle(c: { isFgRGB(): boolean; isFgPalette(): boolean; getFgColor(): number; isBold(): number; isDim(): number; isItalic(): number }): string {
+function cellStyle(c: { isFgRGB(): boolean; isFgPalette(): boolean; getFgColor(): number; isBold(): number; isDim(): number; isItalic(): number; isInverse(): number }): string {
+  // Inverse video: Claude draws its own cursor that way.
+  if (c.isInverse()) return "background:var(--fg);color:var(--bg);";
   let css = "";
   const fg = c.getFgColor();
   if (c.isFgRGB()) css += `color:#${fg.toString(16).padStart(6, "0")};`;
@@ -360,7 +362,7 @@ class Pane {
    * still running) terminal: the status line above the box and the lines
    * below it (mode, background tasks, agents), with their colors.
    */
-  screenEdges(): { status: string; footer: { text: string; el: HTMLElement }[]; input: string } {
+  screenEdges(): { status: string; footer: { text: string; el: HTMLElement }[]; input: string; inputRows: number[] } {
     const buf = this.term.buffer.active;
     const rows: number[] = [];
     for (let i = 0; i < this.term.rows; i++) rows.push(buf.baseY + i);
@@ -371,7 +373,7 @@ class Pane {
       if (!rule(text[i])) continue;
       if (r2 < 0) r2 = i; else if (r2 - i <= 12) { r1 = i; break; } else break;
     }
-    if (r1 < 0) return { status: "", footer: [], input: "" };
+    if (r1 < 0) return { status: "", footer: [], input: "", inputRows: [] };
     // Claude's input box: what's in it (a suggested prompt shows there, dimmed).
     const input = text.slice(r1 + 1, r2).map((l, i) => (i === 0 ? l.replace(/^\s*[>❯›]\s?/, "") : l.replace(/^\s{0,2}/, ""))).join("\n").trim();
     let status = "";
@@ -390,7 +392,7 @@ class Pane {
       if (!t) continue;
       footer.push({ text: t, el: this.lineEl(rows[i]) });
     }
-    return { status, footer, input };
+    return { status, footer, input, inputRows: rows.slice(r1 + 1, r2) };
   }
 
   /** One terminal line as DOM, with its colors. */
@@ -449,7 +451,7 @@ class Pane {
   private buildChat(): HTMLElement {
     const box = document.createElement("div");
     box.className = "tp-chat";
-    box.innerHTML = `<div class="msgs-list"></div><div class="chat-dock"><div class="chat-ask" hidden></div><div class="chat-work" hidden></div><div class="chat-compose"><textarea class="chat-in" rows="1" placeholder="Message Claude — Enter sends, ⇧Enter new line, Esc interrupts; arrows in an empty box go to Claude"></textarea><button class="btn primary chat-send" type="button">Send</button></div><div class="chat-foot" hidden></div></div>`;
+    box.innerHTML = `<div class="msgs-list"></div><div class="chat-dock"><div class="chat-ask" hidden></div><div class="chat-work" hidden></div><div class="chat-compose"><div class="chat-box"><div class="live-lines"></div><textarea class="chat-in" rows="1" aria-label="Claude's input: every key goes to Claude, as in the terminal" spellcheck="false" autocomplete="off"></textarea></div><button class="btn primary chat-send" type="button" title="Enter">Send</button></div><div class="chat-foot" hidden></div></div>`;
     const list = box.querySelector<HTMLElement>(".msgs-list")!;
     const ask = box.querySelector<HTMLElement>(".chat-ask")!;
     const work = box.querySelector<HTMLElement>(".chat-work")!;
@@ -470,54 +472,81 @@ class Pane {
       input.focus();
     });
 
-    // Composer: typed here, sent to the terminal as one paste and Enter.
-    const grow = () => { input.style.height = "auto"; input.style.height = `${Math.min(200, input.scrollHeight)}px`; };
-    let sending = false;
-    const send = async () => {
-      const text = input.value.trim();
-      if (!text || sending) return;
-      sending = true;
-      sendBtn.disabled = true;
-      try {
-        await invoke("send_text", { name: this.name, text });
-        input.value = "";
-        grow();
-        stick = true;
-        setTimeout(() => { if (live()) void draw(); }, 500);
-      } catch (e) { this.copied(String(e)); }
-      sending = false;
-      sendBtn.disabled = false;
-    };
-    const PLACEHOLDER = input.placeholder;
-    let suggestion = "";
+    // The message box is Claude's own input, live: every key goes to the
+    // terminal and the box shows what Claude's input box holds, so slash
+    // commands, @ files, Tab, history, ⌃V images and suggestions all work
+    // as in the terminal. The textarea only catches keys (and IME input).
+    const liveLines = box.querySelector<HTMLElement>(".live-lines")!;
     const key = (data: string) => { if (this.attachId !== null) invoke("write", { id: this.attachId, data }); };
-    input.addEventListener("input", grow);
+    /** Keys since Enter: ← → with nothing typed open an agent. */
+    let typed = 0;
+    const KEYS: Record<string, string> = {
+      ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", ArrowRight: "\x1b[C", ArrowLeft: "\x1b[D",
+      Backspace: "\x7f", Delete: "\x1b[3~", Home: "\x1b[H", End: "\x1b[F", PageUp: "\x1b[5~", PageDown: "\x1b[6~", Escape: "\x1b",
+    };
+    const sendInput = (v: string) => {
+      if (!v) return;
+      typed += v.length;
+      // More than one character at once (a paste): one bracketed paste.
+      key(v.length > 1 ? `\x1b[200~${v}\x1b[201~` : v);
+    };
+    input.addEventListener("input", (e) => {
+      if ((e as InputEvent).isComposing) return;
+      const v = input.value;
+      input.value = "";
+      sendInput(v);
+    });
+    input.addEventListener("compositionend", () => { const v = input.value; input.value = ""; sendInput(v); });
     input.addEventListener("keydown", (e) => {
       if (e.isComposing || e.keyCode === 229) return;
-      // With nothing typed, arrows and Enter go to Claude, as in the
-      // terminal: ↓ manages background agents, ← → switch to one, ↑ recalls.
-      const empty = !input.value;
-      const ARROWS: Record<string, string> = { ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", ArrowRight: "\x1b[C", ArrowLeft: "\x1b[D" };
-      // Opening an agent (Enter in the agent list, or ← →) shows its
-      // conversation in the terminal only: show the terminal until ⌘J.
-      const agents = /agent|manage/i.test(foot.dataset.key ?? "");
-      if (empty && !e.shiftKey && !e.altKey && !e.metaKey && ARROWS[e.key]) {
+      const agents = /agent|manage|to select/i.test(foot.dataset.key ?? "");
+      const edit = macEditKey(e);
+      if (edit !== null) { e.preventDefault(); key(edit); return; }
+      if (e.key === "Enter") {
         e.preventDefault();
-        key(ARROWS[e.key]);
-        if (agents && (e.key === "ArrowLeft" || e.key === "ArrowRight")) setTimeout(() => this.peekTerminal(), 250);
-        else { setTimeout(drawWork, 150); setTimeout(drawWork, 500); }
-      } else if (e.key === "Enter" && empty && !e.shiftKey && !e.altKey) {
-        e.preventDefault();
+        if (e.shiftKey || e.metaKey || e.altKey) { key("\x1b\r"); return; } // new line
+        const wasEmpty = typed === 0;
         key("\r");
-        if (agents) setTimeout(() => this.peekTerminal(), 250);
-        else { setTimeout(drawWork, 150); setTimeout(drawWork, 500); }
+        typed = 0;
+        stick = true;
+        // Enter in the agent list opens that agent, whose conversation only the terminal shows.
+        if (wasEmpty && /to select/i.test(foot.dataset.key ?? "")) setTimeout(() => this.peekTerminal(), 250);
+        setTimeout(() => { if (live()) void draw(); }, 600);
+        return;
       }
-      else if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); void send(); }
-      else if (e.key === "Escape") { e.preventDefault(); key("\x1b"); } // interrupt, as in the terminal
-      else if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); key("\x1b[Z"); } // Claude's mode cycle
-      else if (e.key === "Tab" && empty && suggestion) { e.preventDefault(); input.value = suggestion; grow(); }
+      if (e.key === "Tab") { e.preventDefault(); key(e.shiftKey ? "\x1b[Z" : "\t"); return; }
+      if (e.ctrlKey && !e.metaKey && !e.altKey && /^[a-z]$/i.test(e.key)) {
+        e.preventDefault();
+        key(String.fromCharCode(e.key.toLowerCase().charCodeAt(0) - 96));
+        if (e.key.toLowerCase() === "c" || e.key.toLowerCase() === "u") typed = 0;
+        return;
+      }
+      if (e.metaKey) return; // app shortcuts and ⌘V (paste comes as input)
+      const k = KEYS[e.key];
+      if (k) {
+        e.preventDefault();
+        if (e.key === "Escape") typed = 0;
+        if (e.key === "Backspace") typed = Math.max(0, typed - 1);
+        key(k);
+        if (typed === 0 && agents && (e.key === "ArrowLeft" || e.key === "ArrowRight")) setTimeout(() => this.peekTerminal(), 250);
+      }
     });
-    sendBtn.addEventListener("click", () => void send());
+    sendBtn.addEventListener("click", () => { key("\r"); typed = 0; input.focus(); });
+    /** Claude's input box, mirrored with its own cursor and colors. */
+    const drawLive = (rows: number[]) => {
+      const buf = this.term.buffer.active;
+      const k = rows.map((y) => buf.getLine(y)?.translateToString(false) ?? "").join("\n") + `|${buf.cursorX}|${buf.cursorY}`;
+      if (liveLines.dataset.key === k) return;
+      liveLines.dataset.key = k;
+      liveLines.replaceChildren(...rows.map((y) => this.lineEl(y)));
+    };
+    // Redraw as soon as the terminal changes (typing must feel immediate).
+    let queued = false;
+    const onWrite = this.term.onWriteParsed(() => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => { queued = false; drawWork(); });
+    });
 
     // Messages, and the tool calls between them.
     let shown: ChatItem[] = [];
@@ -575,13 +604,8 @@ class Pane {
       if (!live()) return;
       const t = this.tab;
       // While a question is up, the screen around it isn't the input box.
-      const { status, footer, input: suggested } = t?.state === "waiting" ? { status: "", footer: [], input: "" } : this.screenEdges();
-      // Claude's suggested next prompt: shown in the empty box, Tab takes it.
-      if (suggestion !== suggested) {
-        suggestion = suggested;
-        input.placeholder = suggestion ? `${suggestion.split("\n")[0]}   (Tab to use)` : PLACEHOLDER;
-        input.classList.toggle("suggest", !!suggestion);
-      }
+      const { status, footer, inputRows } = t?.state === "waiting" ? { status: "", footer: [], inputRows: [] } : this.screenEdges();
+      drawLive(inputRows);
       // The terminal's own status line ("✻ Catapulting… (4m 30s · 639 tokens)",
       // "Waiting for 1 background agent") says best what goes on; the
       // running tool call from the transcript says what exactly.
@@ -701,7 +725,7 @@ class Pane {
     const timer = window.setInterval(() => void draw(), 2000);
     // The terminal's bottom lines change by the second (timers, token counts).
     const ticker = window.setInterval(() => { if (!document.hidden) { drawWork(); drawDialog(); } }, 1000);
-    this.stopMsgs = () => { clearInterval(timer); clearInterval(ticker); ro.disconnect(); };
+    this.stopMsgs = () => { clearInterval(timer); clearInterval(ticker); ro.disconnect(); onWrite.dispose(); };
     return box;
   }
 
