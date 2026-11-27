@@ -6,7 +6,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
-import { renderMessage, copyButton } from "./msgfmt";
+import { renderMessage, copyButton, renderTool, runningTool, since, syncItems, type Item as ChatItem } from "./msgfmt";
 import { notifyTab, onNotificationClick, playSound, setBadge, SOUNDS, type Kind } from "./notify";
 
 type State = "running" | "waiting" | "idle" | "done" | "error";
@@ -56,7 +56,7 @@ function openLink(e: MouseEvent, uri: string) {
 // ---------- settings ----------
 // Stored in this app's localStorage: a per-machine preference.
 type Theme = "dark" | "light" | "system";
-interface Settings { fontSize: number; theme: Theme; sound: boolean; doneSound: string; waitSound: string; quickSecs: number; quickKey: string; backKeys: string; claudeView: "term" | "chat" }
+interface Settings { fontSize: number; theme: Theme; sound: boolean; doneSound: string; waitSound: string; quickSecs: number; quickKey: string; backKeys: string; claudeView: "term" | "chat"; inputFont: number }
 /** Quick open: how long a new dock card listens for its key (0 = off), and the keys offered. */
 const QUICK_SECS = [0, 5, 10, 20];
 const QUICK_KEYS: Record<string, string> = { Space: "Space", Return: "Enter", "→ (right arrow)": "ArrowRight", "Tab": "Tab" };
@@ -77,7 +77,7 @@ function soundFor(kind: Kind): string {
 }
 
 function loadSettings(): Settings {
-  const d: Settings = { fontSize: 13, theme: "dark", sound: true, doneSound: "Glass", waitSound: "Ping", quickSecs: 10, quickKey: "Space", backKeys: "bracket", claudeView: "term" };
+  const d: Settings = { fontSize: 13, theme: "dark", sound: true, doneSound: "Glass", waitSound: "Ping", quickSecs: 10, quickKey: "Space", backKeys: "bracket", claudeView: "term", inputFont: 15 };
   try {
     const s = JSON.parse(localStorage.getItem("toranj.settings") ?? "{}");
     const fs = typeof s.fontSize === "number" ? s.fontSize : NaN;
@@ -91,6 +91,7 @@ function loadSettings(): Settings {
       quickKey: Object.values(QUICK_KEYS).includes(s.quickKey) ? s.quickKey : d.quickKey,
       backKeys: ["bracket", "arrows", "optarrows", "ctrlarrows"].includes(s.backKeys) ? s.backKeys : d.backKeys,
       claudeView: s.claudeView === "chat" ? "chat" : "term",
+      inputFont: typeof s.inputFont === "number" ? Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(s.inputFont))) : d.inputFont,
     };
   } catch { return d; }
 }
@@ -224,7 +225,7 @@ class Pane {
         return false;
       }
       // App shortcuts never reach the terminal.
-      return !(e.metaKey && e.type === "keydown" && /^[tuwgkj0-9=+,-]$/i.test(e.key));
+      return !(e.metaKey && e.type === "keydown" && /^[tuwgkjb0-9=+,-]$/i.test(e.key));
     });
     t.onData((data) => { if (this.attachId !== null) invoke("write", { id: this.attachId, data }); });
     t.onResize(({ cols, rows }) => { if (this.attachId !== null) invoke("resize", { id: this.attachId, cols, rows }); });
@@ -332,6 +333,16 @@ class Pane {
       navigator.clipboard.writeText(text).then(() => this.copied(what), () => this.copied("Couldn’t copy"));
     };
 
+    // A click anywhere in the chat goes to the message box, like a click in
+    // a terminal: unless it selected text or hit something clickable.
+    box.addEventListener("mouseup", (e) => {
+      if (e.button !== 0) return;
+      const sel = document.getSelection();
+      if (sel && !sel.isCollapsed) return;
+      if ((e.target as HTMLElement).closest("button, a, summary, textarea, input, pre")) return;
+      input.focus();
+    });
+
     // Composer: typed here, sent to the terminal as one paste and Enter.
     const grow = () => { input.style.height = "auto"; input.style.height = `${Math.min(200, input.scrollHeight)}px`; };
     let sending = false;
@@ -360,8 +371,9 @@ class Pane {
     });
     sendBtn.addEventListener("click", () => void send());
 
-    // Messages.
-    let shown: { id: string; text: string }[] = [];
+    // Messages, and the tool calls between them.
+    let shown: ChatItem[] = [];
+    let known = 0;
     let stick = true;
     list.addEventListener("scroll", () => { stick = list.scrollHeight - list.scrollTop - list.clientHeight < 60; });
     new ResizeObserver(() => { if (stick) list.scrollTop = list.scrollHeight; }).observe(list);
@@ -369,51 +381,70 @@ class Pane {
       const sel = document.getSelection();
       return !!sel && !sel.isCollapsed && sel.rangeCount > 0 && list.contains(sel.getRangeAt(0).commonAncestorContainer);
     };
-    const note = (text: string) => { shown = []; list.replaceChildren(Object.assign(document.createElement("p"), { className: "msgs-note", textContent: text })); };
+    const note = (text: string) => { shown = []; known = 0; list.replaceChildren(Object.assign(document.createElement("p"), { className: "msgs-note", textContent: text })); };
+    const render = (m: ChatItem): HTMLElement => {
+      if (m.role === "tool") return renderTool(m, copy);
+      const at = new Date(m.at);
+      const head = document.createElement("div");
+      head.className = "dmsg-head";
+      head.textContent = (m.role === "user" ? "You" : "Claude") + (isNaN(+at) ? "" : ` · ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+      head.append(copyButton(() => m.text, copy, "Message", "copy-msg"));
+      const item = document.createElement("div");
+      item.className = `citem dmsg ${m.role}`;
+      item.dataset.id = m.id;
+      item.append(head, renderMessage(m.text, copy, true));
+      return item;
+    };
     let busy = false;
     const draw = async () => {
       if (busy || document.hidden || selecting()) return;
       const t = this.tab;
       if (!t?.session_id) { if (!shown.length) note("The conversation shows here once Claude has started it."); return; }
       busy = true;
-      let msgs: { id: string; role: string; text: string; at: string }[];
-      try { msgs = await invoke("conversation", { sessionId: t.session_id, cwd: t.cwd }); }
-      catch { msgs = []; }
+      let conv: { len: number; items?: ChatItem[] } | null;
+      try { conv = await invoke("conversation", { sessionId: t.session_id, cwd: t.cwd, known }); }
+      catch { conv = null; }
       finally { busy = false; }
-      if (!box.isConnected || selecting()) return;
-      if (!msgs.length) { if (!shown.length) note("No messages yet. Write below to start."); return; }
-      if (!shown.length) list.replaceChildren();
-      // Old messages fall off the front as new ones come; the rest is kept
-      // so a selection or the scroll position isn't disturbed.
-      const ids = new Set(msgs.map((m) => m.id));
-      while (shown.length && !ids.has(shown[0].id)) { shown.shift(); list.querySelector(".dmsg")?.remove(); }
-      let keep = 0;
-      while (keep < shown.length && keep < msgs.length && shown[keep].id === msgs[keep].id && shown[keep].text === msgs[keep].text) keep++;
-      if (keep === shown.length && keep === msgs.length) return;
-      [...list.querySelectorAll(".dmsg")].slice(keep).forEach((e) => e.remove());
-      for (const m of msgs.slice(keep)) {
-        const at = new Date(m.at);
-        const head = document.createElement("div");
-        head.className = "dmsg-head";
-        head.textContent = (m.role === "user" ? "You" : "Claude") + (isNaN(+at) ? "" : ` · ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
-        head.append(copyButton(() => m.text, copy, "Message", "copy-msg"));
-        const item = document.createElement("div");
-        item.className = `dmsg ${m.role}`;
-        item.append(head, renderMessage(m.text, copy, true));
-        list.append(item);
-      }
-      const grew = msgs.length > shown.length;
-      shown = msgs.map((m) => ({ id: m.id, text: m.text }));
+      if (!box.isConnected || selecting() || !conv) { drawWork(); return; }
+      if (!conv.items) { drawWork(); return; }
+      known = conv.len;
+      if (!conv.items.length) { if (!shown.length) note("No messages yet. Write below to start."); return; }
+      const grew = conv.items.length !== shown.length;
+      shown = syncItems(list, shown, conv.items, render);
       if (stick || grew) list.scrollTop = list.scrollHeight;
+      drawWork();
     };
+
+    // While Claude works: the tool call running now and for how long; a
+    // click opens it in the list.
+    const drawWork = () => {
+      const t = this.tab;
+      work.hidden = t?.state !== "running";
+      if (work.hidden) return;
+      const run = runningTool(shown);
+      const what = run ? `${run.tool}: ${run.text}` : t?.detail || "Thinking…";
+      const time = run?.at ? since(run.at) : "";
+      work.dataset.id = run?.id ?? "";
+      work.title = run ? "Show what it runs" : "";
+      work.classList.toggle("link", !!run);
+      work.innerHTML = `<i class="st running"></i><span></span><small></small><kbd>esc</kbd>`;
+      work.querySelector("span")!.textContent = what;
+      work.querySelector("small")!.textContent = time;
+    };
+    work.addEventListener("click", () => {
+      const id = work.dataset.id;
+      const d = id ? list.querySelector<HTMLDetailsElement>(`.tcall[data-id="${CSS.escape(id)}"]`) : null;
+      if (!d) return;
+      d.open = true;
+      d.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    });
 
     // A question Claude asks, answered here; and what it's doing meanwhile.
     let askKey = "";
     const drawState = async () => {
       const t = this.tab;
       if (!t) return;
-      work.hidden = t.state !== "running";
-      if (!work.hidden) work.innerHTML = `<i class="st running"></i><span>${escapeHtml(t.detail || "Working…")}</span><kbd>esc</kbd>`;
+      drawWork();
       if (t.state !== "waiting") { ask.hidden = true; askKey = ""; return; }
       const k = `${t.since}:${t.detail}`;
       if (k === askKey) return;
@@ -427,6 +458,8 @@ class Pane {
         return;
       }
       const pr = p.prompt;
+      const atEnd = stick;
+      requestAnimationFrame(() => { if (atEnd) { stick = true; list.scrollTop = list.scrollHeight; } });
       ask.hidden = false;
       ask.innerHTML = `<pre></pre><div class="chat-choices"></div>`;
       ask.querySelector("pre")!.textContent = pr.context.join("\n");
@@ -443,7 +476,7 @@ class Pane {
     this.syncChat = () => { void drawState(); void draw(); };
     void draw();
     void drawState();
-    const timer = window.setInterval(() => void draw(), 2000);
+    const timer = window.setInterval(() => { void draw(); drawWork(); }, 2000);
     this.stopMsgs = () => clearInterval(timer);
     return box;
   }
@@ -461,6 +494,22 @@ class Pane {
 }
 
 const panes = new Map<string, Pane>();
+// ---------- collapsed sidebar ----------
+let railSlim = (() => { try { return localStorage.getItem("toranj.railSlim") === "1"; } catch { return false; } })();
+function applyRail() {
+  document.querySelector(".app")!.classList.toggle("slim", railSlim);
+  const b = $("rail-toggle");
+  b.title = railSlim ? "Expand the sidebar (⌘B)" : "Collapse the sidebar to project icons (⌘B)";
+  b.setAttribute("aria-label", b.title);
+  b.setAttribute("aria-expanded", String(!railSlim));
+  requestAnimationFrame(() => { for (const p of panes.values()) p.refit(); });
+}
+function toggleRail() {
+  railSlim = !railSlim;
+  try { localStorage.setItem("toranj.railSlim", railSlim ? "1" : "0"); } catch { /* not kept */ }
+  applyRail();
+}
+
 /** Terminals shown another way than Settings' default (⌘J), kept across restarts. */
 const paneViews: Record<string, "term" | "chat"> = (() => {
   try {
@@ -1760,8 +1809,13 @@ function render() {
           };
         }
         const inWs = wsMap.has(proj);
-        h.className = "proj" + (inWs ? " in-ws" : "") + dragClass(`p:${proj}`);
+        const curTab = snap.tabs.find((t) => t.name === current);
+        const here = !ovUp && !!curTab && groupKey(curTab) === proj;
+        h.className = "proj" + (inWs ? " in-ws" : "") + (here ? " cur" : "") + dragClass(`p:${proj}`);
         h.dataset.proj = proj;
+        // Collapsed sidebar: the icon carries the project's most urgent state.
+        const sts = tabs.map((t) => doneMarks.get(t.name) ?? t.state);
+        h.dataset.st = (["waiting", "error", "done", "running"] as const).find((x) => sts.includes(x)) ?? "";
         h.onpointerdown = (e) => startSidebarDrag(e, `p:${proj}`);
         // Clicking a project opens it: inside a group, the group's grid.
         h.onclick = (e) => {
@@ -2335,6 +2389,12 @@ function applySettings() {
   $("set-font").textContent = `${settings.fontSize} px`;
   $<HTMLButtonElement>("set-font-dn").disabled = settings.fontSize <= FONT_MIN;
   $<HTMLButtonElement>("set-font-up").disabled = settings.fontSize >= FONT_MAX;
+  // Chat messages follow the terminal's size; the message box has its own.
+  document.documentElement.style.setProperty("--chat-font", `${settings.fontSize + 0.5}px`);
+  document.documentElement.style.setProperty("--input-font", `${settings.inputFont}px`);
+  $("set-ifont").textContent = `${settings.inputFont} px`;
+  $<HTMLButtonElement>("set-ifont-dn").disabled = settings.inputFont <= FONT_MIN;
+  $<HTMLButtonElement>("set-ifont-up").disabled = settings.inputFont >= FONT_MAX;
   $("set-theme").querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
     b.classList.toggle("on", b.dataset.theme === settings.theme);
     b.setAttribute("aria-pressed", String(b.dataset.theme === settings.theme));
@@ -2528,9 +2588,15 @@ function openSettings() {
 }
 
 $("set-btn").onclick = openSettings;
+$("rail-toggle").onclick = toggleRail;
+applyRail();
 $("set-font-dn").onclick = () => setFont(settings.fontSize - 1);
 $("set-font-up").onclick = () => setFont(settings.fontSize + 1);
 $("set-font-reset").onclick = () => setFont(13);
+const setInputFont = (n: number) => { settings.inputFont = Math.min(FONT_MAX, Math.max(FONT_MIN, n)); saveSettings(); applySettings(); };
+$("set-ifont-dn").onclick = () => setInputFont(settings.inputFont - 1);
+$("set-ifont-up").onclick = () => setInputFont(settings.inputFont + 1);
+$("set-ifont-reset").onclick = () => setInputFont(15);
 $("set-theme").querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
   b.onclick = () => { settings.theme = b.dataset.theme as Theme; saveSettings(); applySettings(); };
 });
@@ -3513,6 +3579,7 @@ window.addEventListener("keydown", (e) => {
   else if (e.key === "0") { e.preventDefault(); if (!document.querySelector("dialog[open]")) toggleOverview(); }
   else if (e.key === "u") { e.preventDefault(); nextWaiting(); }
   else if (e.key === "g") { e.preventDefault(); if (!ovShown()) toggleLayout(); }
+  else if (e.key === "b" && !e.shiftKey && !e.altKey) { e.preventDefault(); toggleRail(); }
   else if (e.key === "j" && !e.shiftKey && !e.altKey) { e.preventDefault(); if (current && !ovShown()) panes.get(current)?.toggleView(); }
   // macOS: the app menu handles ⌘W (see toranj://close-tab); this covers
   // platforms without that menu.

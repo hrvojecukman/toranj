@@ -38,12 +38,14 @@ export async function installMock() {
         ? { lines: ["Bash command", "  git push origin feat/contracts", "Do you want to proceed?"], prompt: { context: ["git push origin feat/contracts", "Push the contracts branch", "Do you want to proceed?"], fingerprint: "f1", choices: [{ key: "1", label: "Yes" }, { key: "2", label: "Yes, and don't ask again for git push commands" }, { key: "3", label: "No, and tell Claude what to do differently (esc)" }] } }
         : { lines: ["Which database should I use for staging?"], prompt: null };
       case "answer_tab": return null;
-      case "conversation": return [
+      case "conversation": return { len: 1, items: [
         { id: "m1", role: "user", text: "Draft a reply to Dana asking whether Friday works for the release.", at: "2026-11-26T13:43:30Z" },
         { id: "m2", role: "assistant", text: "Here's the reply, also on your clipboard:\n\n> Hi Dana, would Friday work for the 0.9 release?\n> If not, Monday morning is fine too.\n\nI kept it short since she asked for **yes/no** answers.", at: "2026-11-26T13:43:38Z" },
         { id: "m3", role: "user", text: "and the migration?", at: "2026-11-26T13:54:25Z" },
         { id: "m4", role: "assistant", text: "The migration closes the ride:\n\n```sql\nUPDATE booking SET status = 'COMPLETED' WHERE id = 3984;\n```\n\nRun it through the proxy on port `5438`.", at: "2026-11-26T13:55:12Z" },
-      ];
+        { id: "t1", role: "tool", tool: "Bash", text: "Run the contract tests", detail: "npm test -- contracts", result: "PASS test/contracts.test.ts (14 tests)", at: "2026-11-26T13:56:00Z" },
+        { id: "t2", role: "tool", tool: "Bash", text: "Deploy functions to staging", detail: "sh private/bin/ship-staging.sh functions", at: new Date(Date.now() - 232000).toISOString() },
+      ] };
       case "claude_statusline_status": return { installed: false, other: false, settings_path: "/Users/you/.claude/settings.json" };
       // ?ws: the first two other projects share a VS Code workspace.
       case "workspace_files": {
@@ -116,6 +118,7 @@ export async function installMock() {
     g.dispatchEvent(new PointerEvent("pointermove", { clientX: r.left + r.width * 0.7, clientY: r.top + 50, pointerId: 1 }));
     g.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
   }, 2600);
+  if (params.has("slim")) setTimeout(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "b", metaKey: true })), 2000);
   // ?msgs: the first pane's Messages drawer.
   if (params.has("msgs")) setTimeout(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", metaKey: true })), 2200);
   // ?pgrid: a project's terminals side by side (pane headers).

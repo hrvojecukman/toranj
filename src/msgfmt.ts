@@ -100,3 +100,78 @@ export function renderMessage(text: string, copy: CopyFn, paraCopy = false): HTM
   flushPara();
   return body;
 }
+
+// ---------- conversation items ----------
+
+/** A message, or a tool call Claude made (role "tool"). */
+export interface Item {
+  id: string;
+  role: "user" | "assistant" | "tool";
+  text: string;
+  at: string;
+  tool?: string;
+  detail?: string;
+  /** A tool's output; absent while it runs. */
+  result?: string;
+}
+
+const sig = (m: Item) => `${m.id}|${m.text}|${m.result === undefined ? "…" : m.result.length}`;
+
+/** Elapsed time since an ISO timestamp, short: "45 s", "3 min 52 s". */
+export function since(iso: string): string {
+  const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+  if (!Number.isFinite(s)) return "";
+  if (s < 60) return `${s} s`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ${s % 60} s`;
+  return `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`;
+}
+
+/** A tool call as one line (what it does); opened, its input and output. */
+export function renderTool(m: Item, copy: CopyFn): HTMLElement {
+  const running = m.result === undefined;
+  const d = el("details", `citem tcall${running ? " running" : ""}`);
+  d.dataset.id = m.id;
+  const state = el("span", "tstate", running ? "running" : "");
+  d.append(el("summary", "", el("span", "tname", m.tool ?? "tool"), el("span", "ttitle", m.text), state));
+  const body = el("div", "tbody");
+  if (m.detail) body.append(el("div", "tsec", el("small", "", "Input"), el("pre", "", m.detail), copyButton(() => m.detail ?? "", copy, "Input", "copy-block")));
+  if (m.result) body.append(el("div", "tsec", el("small", "", "Output"), el("pre", "", m.result), copyButton(() => m.result ?? "", copy, "Output", "copy-block")));
+  else if (running) body.append(el("p", "tnote", "Still running…"));
+  d.append(body);
+  return d;
+}
+
+/** The tool call that is still running, newest first. */
+export function runningTool(items: Item[]): Item | undefined {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const m = items[i];
+    if (m.role === "tool") { if (m.result === undefined) return m; }
+    else if (m.role === "assistant" || m.role === "user") return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Brings `list` from `shown` to `items`, touching only what changed: old
+ * items falling off the front are removed, unchanged ones are kept (so a
+ * selection, scroll position or an opened tool call stays). Every rendered
+ * element must have class "citem" and data-id. Returns the new `shown`.
+ */
+export function syncItems(list: HTMLElement, shown: Item[], items: Item[], render: (m: Item) => HTMLElement): Item[] {
+  const els = () => [...list.querySelectorAll<HTMLElement>(":scope > .citem")];
+  if (!shown.length) list.replaceChildren();
+  const ids = new Set(items.map((m) => m.id));
+  shown = [...shown];
+  while (shown.length && !ids.has(shown[0].id)) { shown.shift(); els()[0]?.remove(); }
+  let keep = 0;
+  while (keep < shown.length && keep < items.length && sig(shown[keep]) === sig(items[keep])) keep++;
+  if (keep === shown.length && keep === items.length) return shown;
+  const open = new Set<string>();
+  for (const e of els().slice(keep)) { if ((e as HTMLDetailsElement).open) open.add(e.dataset.id ?? ""); e.remove(); }
+  for (const m of items.slice(keep)) {
+    const e = render(m);
+    if (open.has(m.id) && e instanceof HTMLDetailsElement) e.open = true;
+    list.append(e);
+  }
+  return items;
+}

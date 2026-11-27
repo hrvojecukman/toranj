@@ -898,12 +898,15 @@ struct MessagesQ {
     session: String,
     #[serde(default)]
     cwd: String,
+    /// The transcript length the phone already shows.
+    #[serde(default)]
+    len: u64,
 }
 
-/// A tab's Claude conversation as plain messages.
+/// A tab's Claude conversation as messages and tool calls.
 async fn api_messages(h: HeaderMap, Query(q): Query<MessagesQ>) -> ApiResult {
     auth(&h)?;
-    let m = blocking(move || crate::phone::messages(&q.session, &q.cwd)).await?;
+    let m = blocking(move || crate::phone::conversation_since(&q.session, &q.cwd, q.len)).await?;
     Ok(Json(m).into_response())
 }
 

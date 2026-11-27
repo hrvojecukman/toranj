@@ -3,7 +3,7 @@
 // questions, shows a terminal and types into it, opens new terminals and
 // receives push notifications.
 import { renderAnsi } from "./ansi";
-import { renderMessage } from "../msgfmt";
+import { renderMessage, renderTool, runningTool, since, syncItems, type Item } from "../msgfmt";
 
 type State = "running" | "waiting" | "idle" | "done" | "error";
 interface Tab { name: string; project: string; cwd: string; agent: string; state: State; detail: string; title: string; since: number; background: boolean; session_id: string }
@@ -581,11 +581,10 @@ async function upload(file: File): Promise<{ path: string; thumb: string; name: 
 }
 
 // ---------- chat (a Claude conversation as messages) ----------
-interface Msg { id: string; role: "user" | "assistant"; text: string; at: string }
-
-function msgEl(m: Msg): HTMLElement {
+function msgEl(m: Item): HTMLElement {
+  if (m.role === "tool") return renderTool(m, copyText);
   const time = m.at ? new Date(m.at) : null;
-  return h("div", { class: `msg ${m.role}`, "data-id": m.id },
+  return h("div", { class: `citem msg ${m.role}`, "data-id": m.id },
     renderMessage(m.text, copyText),
     h("div", { class: "mfoot" },
       time && !isNaN(+time) ? h("small", {}, time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) : null,
@@ -775,36 +774,45 @@ function termView(name: string) {
     }
   };
 
-  let shown: Msg[] = [];
+  let shown: Item[] = [];
+  let known = 0;
   const drawChat = async () => {
     if (chat.hidden || !tab?.session_id || selecting(chat)) return;
-    let msgs = await api<Msg[]>(`/api/messages?session=${encodeURIComponent(tab.session_id)}&cwd=${encodeURIComponent(tab.cwd)}`).catch((x) => x as Error);
+    const res = await api<{ len: number; items?: Item[] }>(`/api/messages?session=${encodeURIComponent(tab.session_id)}&cwd=${encodeURIComponent(tab.cwd)}&len=${known}`).catch((x) => x as Error);
     if (gen !== viewGen || selecting(chat)) return;
     // A new conversation has no transcript yet.
-    if (msgs instanceof Error) { if (shown.length || !(msgs instanceof ApiError)) return; msgs = []; }
-    if (!msgs.length && !shown.length) {
+    if (res instanceof Error) {
+      if (!shown.length && res instanceof ApiError) chat.replaceChildren(h("div", { class: "chat-empty mute" }, "No messages yet. Write below to start."));
+      return;
+    }
+    if (!res.items) { drawWork(); return; }
+    known = res.len;
+    if (!res.items.length) {
+      shown = [];
       chat.replaceChildren(h("div", { class: "chat-empty mute" }, "No messages yet. Write below to start."));
       return;
     }
     // Only what changed is redrawn, so a long press on an older message isn't interrupted.
-    const same = (a: Msg, b: Msg) => a.id === b.id && a.text === b.text;
-    // The oldest messages drop off the list as new ones come: remove those first.
-    const ids = new Set(msgs.map((m) => m.id));
-    while (shown.length && !ids.has(shown[0].id)) {
-      shown = shown.slice(1);
-      chat.querySelector(".msg")?.remove();
-    }
-    let keep = 0;
-    while (keep < shown.length && keep < msgs.length && same(shown[keep], msgs[keep])) keep++;
-    if (keep === shown.length && keep === msgs.length) return;
-    if (keep === 0 || chat.querySelector(".chat-empty")) chat.replaceChildren();
-    const els = [...chat.querySelectorAll(".msg")];
-    els.slice(keep).forEach((e) => e.remove());
-    chat.append(...msgs.slice(keep).map(msgEl));
-    const grew = msgs.length > shown.length;
-    shown = msgs;
+    const grew = res.items.length !== shown.length;
+    shown = syncItems(chat, shown, res.items, msgEl);
     if (stick || grew) toBottom();
+    drawWork();
   };
+  /** While Claude works: the tool call running now, and for how long; a tap opens it. */
+  const drawWork = () => {
+    working.hidden = !(canChat && mode === "chat" && tab?.state === "running");
+    if (working.hidden) return;
+    const run = runningTool(shown);
+    working.dataset.id = run?.id ?? "";
+    working.replaceChildren(h("i", { class: "st running" }),
+      h("span", {}, run ? `${run.tool}: ${run.text}` : tab?.detail || "Thinking…"),
+      h("small", {}, run?.at ? since(run.at) : ""));
+  };
+  working.addEventListener("click", () => {
+    const id = working.dataset.id;
+    const d = id ? chat.querySelector<HTMLDetailsElement>(`.tcall[data-id="${CSS.escape(id)}"]`) : null;
+    if (d) { d.open = true; d.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+  });
 
   let lastPeekKey = "";
   const drawState = async () => {
@@ -818,8 +826,7 @@ function termView(name: string) {
     const chatNow = tab.agent === "claude" && !!tab.session_id;
     if (chatNow !== canChat) { canChat = chatNow; seg.hidden = !canChat; setMode(mode, false); }
     // In chat, what the terminal shows meanwhile (Claude at work) is a line under the messages.
-    working.hidden = !(canChat && mode === "chat" && tab.state === "running");
-    if (!working.hidden) working.replaceChildren(h("i", { class: "st running" }), h("span", {}, tab.detail || "Working…"));
+    drawWork();
     if (tab.state === "waiting") {
       const k = `${tab.since}:${tab.detail}`;
       if (k !== lastPeekKey || promptBox.hidden) {

@@ -12,7 +12,7 @@
       <nav class="rail" aria-label="Projects and terminals">
         <div class="rail-head">
           <button class="brand" id="brand" title="Overview of all projects (⌘0)">Toranj</button>
-          <span class="rail-acts"><button class="pill wait" id="q-wait" hidden></button><button class="palbtn" id="pal-btn" title="Quick switch: terminals, projects, actions (⌘K)">⌘K</button><button class="palbtn" id="set-btn" title="Settings (⌘,)" aria-label="Settings">⚙</button></span>
+          <span class="rail-acts"><button class="pill wait" id="q-wait" hidden></button><button class="palbtn" id="pal-btn" title="Quick switch: terminals, projects, actions (⌘K)">⌘K</button><button class="palbtn" id="set-btn" title="Settings (⌘,)" aria-label="Settings">⚙</button><button class="palbtn" id="rail-toggle" type="button"><svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M6 2.5v11"/></svg></button></span>
         </div>
         <button class="sess ovrow" id="ov-row" title="Overview of all projects (⌘0)" hidden><i class="ov-ico" aria-hidden="true">▦</i><span class="n">Overview</span><kbd class="k">⌘0</kbd></button>
         <div id="tabs"></div>
@@ -101,12 +101,19 @@
         <section class="set-sec">
           <h4>Appearance</h4>
           <div class="set-grid">
-            <span class="set-l">Font size <small>⌘+ / ⌘−</small></span>
+            <span class="set-l">Terminal and chat text <small>⌘+ / ⌘−</small></span>
             <div class="set-row">
               <button type="button" class="btn sq" id="set-font-dn" aria-label="Smaller">−</button>
               <b id="set-font"></b>
               <button type="button" class="btn sq" id="set-font-up" aria-label="Larger">+</button>
               <button type="button" class="link" id="set-font-reset">Reset</button>
+            </div>
+            <span class="set-l">Message box <small>chat view</small></span>
+            <div class="set-row">
+              <button type="button" class="btn sq" id="set-ifont-dn" aria-label="Smaller">−</button>
+              <b id="set-ifont"></b>
+              <button type="button" class="btn sq" id="set-ifont-up" aria-label="Larger">+</button>
+              <button type="button" class="link" id="set-ifont-reset">Reset</button>
             </div>
             <span class="set-l">Theme</span>
             <div class="seg" id="set-theme" role="group" aria-label="Theme">

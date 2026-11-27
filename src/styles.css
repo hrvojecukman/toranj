@@ -618,3 +618,59 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .chat-in:focus { outline: none; border-color: var(--accent); }
 .chat-send { padding: 7px 14px; }
 .tp-chat .msgs-list { min-height: 0; }
+/* Tool calls in the chat: one line each, opened for input and output. */
+.tcall { border: 1px solid transparent; border-radius: 8px; font-size: 12px; color: var(--mute); }
+.tcall summary { display: flex; align-items: center; gap: 8px; padding: 3px 8px; cursor: pointer; list-style: none; min-width: 0; border-radius: 8px; }
+.tcall summary::-webkit-details-marker { display: none; }
+.tcall summary::before { content: "▸"; font-size: 10px; flex: none; transition: transform .12s; }
+.tcall[open] summary::before { transform: rotate(90deg); }
+.tcall summary:hover { background: color-mix(in srgb, var(--fg) 5%, transparent); color: var(--fg); }
+.tcall[open] { border-color: var(--line); background: var(--term); }
+.tname { flex: none; font: 600 11px var(--mono); color: var(--accent); }
+.ttitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tstate { flex: none; font-size: 11px; }
+.tcall.running .tstate { color: var(--run, var(--accent)); }
+.tcall.running .tstate::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-right: 5px; animation: pulse 1.4s ease-in-out infinite; }
+.tbody { padding: 4px 10px 10px; display: grid; gap: 8px; }
+.tsec { position: relative; }
+.tsec small { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 3px; }
+.tsec pre { margin: 0; padding: 8px 10px 32px; font: 11.5px/1.45 var(--mono); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow: auto; }
+.tnote { margin: 0; font-size: 12px; }
+.chat-work.link { cursor: pointer; }
+.chat-work.link:hover span { color: var(--fg); text-decoration: underline; }
+.chat-work small { flex: none; font-variant-numeric: tabular-nums; }
+/* Sizes from Settings. */
+.tp-chat .dmsg { font-size: var(--chat-font, 13.5px); }
+.chat-in { font-size: var(--input-font, 15px) !important; }
+/* Sidebar toggle, and the collapsed sidebar: project icons only (⌘B). */
+#rail-toggle { display: grid; place-items: center; padding: 2px 5px; }
+#rail-toggle svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+.app { transition: grid-template-columns .18s ease-out; }
+.app.slim { grid-template-columns: 60px 1fr; }
+.app.slim .rail { overflow-x: hidden; scrollbar-width: none; }
+.app.slim .rail-head { flex-direction: column; gap: 8px; padding: 2px 0 10px; }
+.app.slim .brand, .app.slim #pal-btn, .app.slim #q-wait { display: none; }
+.app.slim .rail-acts { flex-direction: column-reverse; }
+.app.slim #tabs .sess, .app.slim #external, .app.slim #recent, .app.slim .hooks, .app.slim .ovrow .n, .app.slim .ovrow .k { display: none; }
+.app.slim .ovrow { justify-content: center; padding: 8px 0; }
+.app.slim .ovrow .ov-ico { width: auto; font-size: 18px; }
+.app.slim .proj { justify-content: center; padding: 5px 0; }
+.app.slim .proj .pn, .app.slim .proj .branch, .app.slim .proj .padd, .app.slim .proj .wsum, .app.slim .proj .wgrid { display: none; }
+.app.slim .proj.ws { padding: 8px 0 2px; border-top: 1px solid var(--line); margin: 6px 10px 0; }
+.app.slim .proj.ws:first-child { border-top: 0; margin-top: 0; }
+.app.slim .proj:not(.ws):not(.recent-head) { cursor: pointer; }
+.app.slim .proj .pi { width: 34px; height: 34px; border-radius: 8px; font-size: 15px; position: relative; overflow: visible; outline: 2px solid transparent; outline-offset: 2px; transition: outline-color .12s, transform .12s; }
+.app.slim .proj .pi img { border-radius: 8px; }
+.app.slim .proj:hover .pi { transform: scale(1.06); }
+.app.slim .proj.cur .pi { outline-color: var(--accent); }
+.app.slim .proj[data-st] .pi::after { content: ""; position: absolute; right: -3px; top: -3px; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--rail); }
+.app.slim .proj[data-st="waiting"] .pi::after { background: var(--wait); }
+.app.slim .proj[data-st="error"] .pi::after { background: var(--err); }
+.app.slim .proj[data-st="done"] .pi::after { background: var(--done); }
+.app.slim .proj[data-st="running"] .pi::after { background: var(--run); animation: pulse 1.4s ease-in-out infinite; }
+.app.slim .proj[data-st=""] .pi::after { display: none; }
+.app.slim .newbtn { margin: 10px 8px; padding: 6px 0; font-size: 0; }
+.app.slim .newbtn::before { content: "+"; font-size: 18px; line-height: 1; }
+.app.slim .newbtn kbd { display: none; }
+.app.slim .proj kbd, .app.slim .proj .k, .app.slim .proj .wchev { display: none; }
+.app.slim .proj.ws { min-height: 1px; padding: 0; }

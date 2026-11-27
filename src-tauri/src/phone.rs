@@ -1,5 +1,6 @@
-//! What the phone (and the desktop's Messages drawer) needs beyond the terminal itself: a tab's Claude
-//! conversation as plain messages (easy to read and copy on a small screen),
+//! What the phone (and the desktop's Chat view) needs beyond the terminal
+//! itself: a tab's Claude conversation as messages and tool calls (easy to
+//! read and copy),
 //! the Mac's clipboard (so what an agent copied reaches the phone), and files
 //! the phone uploads to attach to a message.
 
@@ -13,10 +14,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 
 /// How much of a transcript's end is read for the latest messages, tried
-/// in turn until at least MIN_MESSAGES are found.
+/// in turn until at least MIN_MESSAGES text messages are found.
 const TAILS: [u64; 3] = [4 << 20, 16 << 20, 48 << 20];
 const MIN_MESSAGES: usize = 20;
-const MAX_MESSAGES: usize = 60;
+/// Text messages and tool calls together.
+const MAX_ITEMS: usize = 150;
+/// A tool call's input and output are cut to this many characters.
+const TOOL_TEXT: usize = 1500;
 /// A longer clipboard is cut; it's for text, not files.
 const CLIP_MAX: usize = 256 << 10;
 pub const UPLOAD_MAX: usize = 30 << 20;
@@ -29,64 +33,92 @@ fn now() -> u64 {
 
 // ---------- conversation ----------
 
-/// Messages last read per transcript, with the file length they were read at.
+/// Items last read per transcript, with the file length they were read at.
 static CACHE: LazyLock<Mutex<HashMap<PathBuf, (u64, Vec<Message>)>>> = LazyLock::new(Default::default);
 
 #[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct Message {
     pub id: String,
-    /// "user" or "assistant".
+    /// "user", "assistant" or "tool" (a tool call Claude made).
     pub role: &'static str,
+    /// The message; for a tool call, a short title of what it does.
     pub text: String,
     /// ISO 8601, as Claude writes it.
     pub at: String,
+    /// Tool calls: the tool's name, its input (e.g. the command) and its
+    /// output, `None` while it runs.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub tool: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub detail: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<String>,
 }
 
-/// The latest user and assistant text messages of a Claude conversation,
-/// oldest first. Tool calls, tool output and thinking are left out.
-pub fn messages(session_id: &str, cwd: &str) -> Result<Vec<Message>, String> {
+#[derive(Serialize)]
+pub struct Conversation {
+    /// The transcript's length: asked again with it, an unchanged
+    /// conversation answers without items.
+    pub len: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items: Option<Vec<Message>>,
+}
+
+/// The latest messages and tool calls of a Claude conversation, oldest
+/// first. Thinking is left out. `known` is the length the caller already
+/// has: if the transcript is still that long, no items are sent.
+pub fn conversation_since(session_id: &str, cwd: &str, known: u64) -> Result<Conversation, String> {
     if !crate::status::safe_id(session_id) {
         return Err("unknown conversation".into());
     }
     let path = crate::titles::locate(session_id, cwd).ok_or("no transcript yet")?;
-    // The phone asks every few seconds; an unchanged transcript is not read again.
     let len = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+    if known == len {
+        return Ok(Conversation { len, items: None });
+    }
+    // Asked every few seconds; an unchanged transcript is not read again.
     if let Some((l, m)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).get(&path) {
         if *l == len {
-            return Ok(m.clone());
+            return Ok(Conversation { len, items: Some(m.clone()) });
         }
     }
     // Long tool output can push messages far back: read more of the end
     // until enough messages are in, or the whole file.
     let mut out = Vec::new();
     for tail in TAILS {
-        let (msgs, whole) = tail_messages(&path, tail)?;
-        out = msgs;
-        if whole || out.len() >= MIN_MESSAGES {
+        let (items, whole) = tail_items(&path, tail)?;
+        out = items;
+        if whole || out.iter().filter(|m| m.role != "tool").count() >= MIN_MESSAGES {
             break;
         }
     }
-    if out.len() > MAX_MESSAGES {
-        out.drain(..out.len() - MAX_MESSAGES);
+    if out.len() > MAX_ITEMS {
+        out.drain(..out.len() - MAX_ITEMS);
     }
     let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     if cache.len() > 16 {
         cache.clear();
     }
     cache.insert(path, (len, out.clone()));
-    Ok(out)
+    Ok(Conversation { len, items: Some(out) })
 }
 
-/// The desktop's Messages drawer: the same messages as the phone's Chat.
+/// The desktop's Chat view: the same as the phone's.
 #[tauri::command]
-pub async fn conversation(session_id: String, cwd: String) -> Result<Vec<Message>, String> {
-    tauri::async_runtime::spawn_blocking(move || messages(&session_id, &cwd))
+pub async fn conversation(session_id: String, cwd: String, known: u64) -> Result<Conversation, String> {
+    tauri::async_runtime::spawn_blocking(move || conversation_since(&session_id, &cwd, known))
         .await
         .map_err(|e| e.to_string())?
 }
 
-/// The messages in the last `tail` bytes, and whether that was the whole file.
-fn tail_messages(path: &Path, tail: u64) -> Result<(Vec<Message>, bool), String> {
+enum Item {
+    Msg(Message),
+    /// A tool's output, for the call with this id.
+    Result(String, String),
+}
+
+/// The items in the last `tail` bytes, and whether that was the whole file.
+fn tail_items(path: &Path, tail: u64) -> Result<(Vec<Message>, bool), String> {
     let mut f = File::open(path).map_err(|e| e.to_string())?;
     let len = f.metadata().map_err(|e| e.to_string())?.len();
     let start = len.saturating_sub(tail);
@@ -99,40 +131,142 @@ fn tail_messages(path: &Path, tail: u64) -> Result<(Vec<Message>, bool), String>
     } else {
         &buf[..]
     };
-    Ok((body.split(|&b| b == b'\n').filter_map(parse_line).collect(), start == 0))
+    let mut out: Vec<Message> = Vec::new();
+    let mut calls: HashMap<String, usize> = HashMap::new();
+    for item in body.split(|&b| b == b'\n').flat_map(parse_line) {
+        match item {
+            Item::Msg(m) => {
+                if m.role == "tool" {
+                    calls.insert(m.id.clone(), out.len());
+                }
+                out.push(m);
+            }
+            Item::Result(id, text) => {
+                if let Some(&i) = calls.get(&id) {
+                    out[i].result = Some(text);
+                }
+            }
+        }
+    }
+    Ok((out, start == 0))
 }
 
-fn parse_line(line: &[u8]) -> Option<Message> {
-    let v: serde_json::Value = serde_json::from_slice(line).ok()?;
-    let role = match v.get("type")?.as_str()? {
-        "user" => "user",
-        "assistant" => "assistant",
-        _ => return None,
-    };
-    if v.get("isSidechain").and_then(|x| x.as_bool()) == Some(true) || v.get("isMeta").and_then(|x| x.as_bool()) == Some(true) {
-        return None;
+fn clip(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s.to_string(),
     }
-    let content = v.get("message")?.get("content")?;
-    let text = match content {
-        serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Array(parts) => parts
+}
+
+/// What a tool call does, in a few words.
+fn tool_title(name: &str, input: &serde_json::Value) -> String {
+    let s = |k: &str| input.get(k).and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let file = |k: &str| {
+        let p = s(k);
+        p.rsplit('/').next().unwrap_or(&p).to_string()
+    };
+    let t = match name {
+        "Bash" | "Monitor" => {
+            let d = s("description");
+            if d.is_empty() { s("command").lines().next().unwrap_or("").to_string() } else { d }
+        }
+        "Read" | "Write" | "Edit" | "MultiEdit" => format!("{name} {}", file("file_path")),
+        "NotebookEdit" => format!("Edit {}", file("notebook_path")),
+        "Grep" => format!("Search for “{}”", s("pattern")),
+        "Glob" => format!("Find {}", s("pattern")),
+        "Task" | "Agent" => s("description"),
+        "WebFetch" => format!("Fetch {}", s("url")),
+        "WebSearch" => format!("Search the web for “{}”", s("query")),
+        "TodoWrite" => "Update the to-do list".into(),
+        _ => ["description", "title", "action", "query", "url", "path", "name"]
             .iter()
-            .filter(|p| p.get("type").and_then(|t| t.as_str()) == Some("text"))
-            .filter_map(|p| p.get("text").and_then(|t| t.as_str()))
-            .collect::<Vec<_>>()
-            .join("\n\n"),
-        _ => return None,
+            .map(|k| s(k))
+            .find(|v| !v.is_empty())
+            .unwrap_or_default(),
     };
-    let text = text.trim();
-    if text.is_empty() || (role == "user" && !is_prompt(text)) {
-        return None;
+    clip(if t.is_empty() { name } else { &t }, 140)
+}
+
+/// A tool's name as shown: `mcp__server__tool` becomes `server: tool`.
+fn tool_name(name: &str) -> String {
+    match name.strip_prefix("mcp__").and_then(|r| r.split_once("__")) {
+        Some((server, tool)) => format!("{}: {tool}", server.trim_start_matches("claude_ai_").replace('_', " ")),
+        None => name.to_string(),
     }
-    Some(Message {
-        id: v.get("uuid").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-        role,
-        text: text.to_string(),
-        at: v.get("timestamp").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-    })
+}
+
+fn tool_detail(name: &str, input: &serde_json::Value) -> String {
+    let d = match (name, input.get("command").and_then(|v| v.as_str())) {
+        ("Bash" | "Monitor", Some(cmd)) => cmd.to_string(),
+        _ => serde_json::to_string_pretty(input).unwrap_or_default(),
+    };
+    clip(&d, TOOL_TEXT)
+}
+
+fn result_text(content: Option<&serde_json::Value>) -> String {
+    let text = match content {
+        Some(serde_json::Value::String(s)) => s.clone(),
+        Some(serde_json::Value::Array(parts)) => parts
+            .iter()
+            .filter_map(|p| match p.get("type").and_then(|t| t.as_str()) {
+                Some("text") => p.get("text").and_then(|t| t.as_str()).map(str::to_string),
+                Some("image") => Some("[image]".into()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    };
+    clip(text.trim(), TOOL_TEXT)
+}
+
+fn parse_line(line: &[u8]) -> Vec<Item> {
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(line) else { return vec![] };
+    let role = match v.get("type").and_then(|t| t.as_str()) {
+        Some("user") => "user",
+        Some("assistant") => "assistant",
+        _ => return vec![],
+    };
+    let flag = |k: &str| v.get(k).and_then(|x| x.as_bool()) == Some(true);
+    if flag("isSidechain") {
+        return vec![];
+    }
+    let at = v.get("timestamp").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let uuid = v.get("uuid").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let Some(content) = v.get("message").and_then(|m| m.get("content")) else { return vec![] };
+    let msg = |role: &'static str, id: String, text: String| Message { id, role, text, at: at.clone(), tool: String::new(), detail: String::new(), result: None };
+    let mut out = Vec::new();
+    let mut texts = Vec::new();
+    match content {
+        serde_json::Value::String(s) => texts.push(s.as_str()),
+        serde_json::Value::Array(parts) => {
+            for p in parts {
+                match p.get("type").and_then(|t| t.as_str()) {
+                    Some("text") => texts.extend(p.get("text").and_then(|t| t.as_str())),
+                    Some("tool_use") if role == "assistant" => {
+                        let name = p.get("name").and_then(|t| t.as_str()).unwrap_or("tool");
+                        let input = p.get("input").cloned().unwrap_or_default();
+                        let mut m = msg("tool", p.get("id").and_then(|t| t.as_str()).unwrap_or("").to_string(), tool_title(name, &input));
+                        m.tool = tool_name(name);
+                        m.detail = tool_detail(name, &input);
+                        out.push(Item::Msg(m));
+                    }
+                    Some("tool_result") => {
+                        let id = p.get("tool_use_id").and_then(|t| t.as_str()).unwrap_or("").to_string();
+                        out.push(Item::Result(id, result_text(p.get("content"))));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    let text = texts.join("\n\n");
+    let text = text.trim();
+    if !text.is_empty() && !flag("isMeta") && (role == "assistant" || is_prompt(text)) {
+        out.insert(0, Item::Msg(msg(role, uuid, text.to_string())));
+    }
+    out
 }
 
 /// What the user typed, not what Claude Code adds on their behalf (slash
@@ -327,21 +461,28 @@ mod tests {
 
     #[test]
     fn keeps_typed_prompts_and_replies() {
+        let one = |l: &[u8]| parse_line(l).into_iter().find_map(|i| if let Item::Msg(m) = i { Some(m) } else { None });
         let user = br#"{"parentUuid":"a","type":"user","uuid":"u1","timestamp":"t","message":{"role":"user","content":"fix the bug"}}"#;
-        assert_eq!(parse_line(user).unwrap().text, "fix the bug");
+        assert_eq!(one(user).unwrap().text, "fix the bug");
         let reply = br#"{"parentUuid":"a","type":"assistant","uuid":"u2","timestamp":"t","message":{"content":[{"type":"thinking","thinking":"x"},{"type":"text","text":"Done."}]}}"#;
-        let m = parse_line(reply).unwrap();
+        let m = one(reply).unwrap();
         assert_eq!((m.role, m.text.as_str()), ("assistant", "Done."));
         let tool = br#"{"parentUuid":"a","type":"user","message":{"content":[{"type":"tool_result","content":"x"}]}}"#;
-        assert!(parse_line(tool).is_none());
+        assert!(one(tool).is_none());
         let cmd = br#"{"parentUuid":"a","type":"user","message":{"content":"<command-name>/clear</command-name>"}}"#;
-        assert!(parse_line(cmd).is_none());
+        assert!(one(cmd).is_none());
         let html = br#"{"parentUuid":"a","type":"user","message":{"content":"<div> is off by one"}}"#;
-        assert!(parse_line(html).is_some());
+        assert!(one(html).is_some());
         let meta = br#"{"parentUuid":"a","type":"user","isMeta":true,"message":{"content":"hi"}}"#;
-        assert!(parse_line(meta).is_none());
+        assert!(one(meta).is_none());
         let side = br#"{"parentUuid":"a","type":"assistant","isSidechain":true,"message":{"content":[{"type":"text","text":"x"}]}}"#;
-        assert!(parse_line(side).is_none());
+        assert!(one(side).is_none());
+        let call = br#"{"type":"assistant","uuid":"u3","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"npm test","description":"Run the tests"}}]}}"#;
+        let m = one(call).unwrap();
+        assert_eq!((m.role, m.text.as_str(), m.tool.as_str(), m.detail.as_str()), ("tool", "Run the tests", "Bash", "npm test"));
+        let res = br#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#;
+        assert!(matches!(parse_line(res).as_slice(), [Item::Result(id, t)] if id == "t1" && t == "ok"));
+        assert_eq!(tool_name("mcp__claude_ai_Slack__slack_read_thread"), "Slack: slack_read_thread");
     }
 }
 
