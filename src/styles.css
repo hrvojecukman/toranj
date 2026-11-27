@@ -598,7 +598,8 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .copy-para:hover { color: var(--accent); background: var(--line); }
 .dmsg, .dmsg .mtext > * { min-width: 0; }
 .dmsg .code { overflow: hidden; }
-.tp-host[hidden] { display: none; }
+.tp-mid { position: relative; }
+.tp-host.under-chat { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
 .tp-chat { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
 .tp-chat .msgs-list { padding: 14px max(14px, calc((100% - 860px) / 2)); gap: 12px; }
 .tp-chat .dmsg { font-size: 13.5px; padding: 8px 12px 12px; }

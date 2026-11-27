@@ -260,9 +260,9 @@ class Pane {
     (this.el.firstChild as HTMLElement).addEventListener("contextmenu", (e) => tabMenu(e, this.name));
   }
 
-  // Hidden (chat view), the terminal keeps its size: fitting a hidden pane
-  // would shrink the program's screen.
-  refit() { if (this.host.hidden) return; try { this.fit.fit(); } catch {} }
+  // Under the chat view the terminal stays laid out at the pane's full size
+  // (only invisible), so the program's screen keeps the right size.
+  refit() { try { this.fit.fit(); } catch {} }
 
   async attach() {
     this.refit();
@@ -344,13 +344,13 @@ class Pane {
     if (chat) {
       this.chat = this.buildChat();
       this.el.querySelector(".tp-mid")!.append(this.chat);
-      this.host.hidden = true;
+      this.host.classList.add("under-chat");
     } else {
       this.stopMsgs();
       this.syncChat = () => {};
       this.chat?.remove();
       this.chat = null;
-      this.host.hidden = false;
+      this.host.classList.remove("under-chat");
       requestAnimationFrame(() => this.refit());
     }
     this.el.classList.toggle("chat-mode", chat);
