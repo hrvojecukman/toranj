@@ -4,6 +4,8 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 
 export async function installMock() {
   const params = new URLSearchParams(location.search);
+  // ?allchat: every pane's Chat button pressed (after the grid is up).
+  if (params.has("allchat")) setTimeout(() => document.querySelectorAll<HTMLButtonElement>(".tp-msgs-btn:not([hidden])").forEach((b) => b.click()), 2600);
   // ?demo: fictional, committed sample data (for README screenshots).
   const data = await (await fetch(params.has("demo") ? "/src/dev/demo-data.json" : "/src/dev/mock-data.json")).json();
   const enc = new TextEncoder();

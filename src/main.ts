@@ -99,6 +99,23 @@ const settings = loadSettings();
 const lightQuery = matchMedia("(prefers-color-scheme: light)");
 const isLight = () => settings.theme === "light" || (settings.theme === "system" && lightQuery.matches);
 const termTheme = () => (isLight() ? LIGHT_TERM : DARK_TERM);
+
+const ANSI_NAMES = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;
+/** CSS for an xterm cell's color and weight (the chat shows terminal lines). */
+function cellStyle(c: { isFgRGB(): boolean; isFgPalette(): boolean; getFgColor(): number; isBold(): number; isDim(): number; isItalic(): number }): string {
+  let css = "";
+  const fg = c.getFgColor();
+  if (c.isFgRGB()) css += `color:#${fg.toString(16).padStart(6, "0")};`;
+  else if (c.isFgPalette()) {
+    if (fg < 16) { const v = (termTheme() as Record<string, string | undefined>)[ANSI_NAMES[fg]]; if (v) css += `color:${v};`; }
+    else if (fg < 232) { const i = fg - 16, v = (n: number) => (n ? 55 + n * 40 : 0); css += `color:rgb(${v(Math.floor(i / 36))},${v(Math.floor(i / 6) % 6)},${v(i % 6)});`; }
+    else { const g = 8 + (fg - 232) * 10; css += `color:rgb(${g},${g},${g});`; }
+  }
+  if (c.isBold()) css += "font-weight:600;";
+  if (c.isDim()) css += "opacity:.65;";
+  if (c.isItalic()) css += "font-style:italic;";
+  return css;
+}
 document.documentElement.dataset.theme = isLight() ? "light" : "dark";
 
 /** Control sequence for a macOS editing shortcut, or null for other keys. */
@@ -320,13 +337,73 @@ class Pane {
     if (hadFocus) this.focus();
   }
 
+  /**
+   * What Claude Code shows around its input box, read from the (hidden but
+   * still running) terminal: the status line above the box and the lines
+   * below it (mode, background tasks, agents), with their colors.
+   */
+  screenEdges(): { status: string; footer: { text: string; el: HTMLElement }[] } {
+    const buf = this.term.buffer.active;
+    const rows: number[] = [];
+    for (let i = 0; i < this.term.rows; i++) rows.push(buf.baseY + i);
+    const text = rows.map((y) => buf.getLine(y)?.translateToString(true) ?? "");
+    const rule = (l: string) => { const t = l.trim(); return t.length >= 10 && [...t].filter((c) => c === "─" || c === "━").length >= t.length * 0.6; };
+    let r2 = -1, r1 = -1;
+    for (let i = text.length - 1; i >= 0; i--) {
+      if (!rule(text[i])) continue;
+      if (r2 < 0) r2 = i; else if (r2 - i <= 12) { r1 = i; break; } else break;
+    }
+    if (r1 < 0) return { status: "", footer: [] };
+    let status = "";
+    for (let i = r1 - 1; i >= Math.max(0, r1 - 3); i--) {
+      const l = text[i].trim();
+      if (!l) continue;
+      // A spinner or note line starts with a symbol: ✻ · * ✶ ✳ ✢ ⎿ (not ⏺, Claude's reply bullet).
+      if (/^[^\p{L}\p{N}\s⏺❯>]\s/u.test(l)) status = l.replace(/^\S+\s+/, "").replace(/\s{3,}.*$/, "");
+      break;
+    }
+    const footer: { text: string; el: HTMLElement }[] = [];
+    let last = text.length - 1;
+    while (last > r2 && !text[last].trim()) last--;
+    for (let i = r2 + 1; i <= last; i++) {
+      const line = buf.getLine(rows[i]);
+      if (!line) continue;
+      const el = document.createElement("div");
+      el.className = "cf-line";
+      const cell = buf.getNullCell();
+      let run = "", style = "";
+      const flush = () => {
+        if (!run) return;
+        const sp = document.createElement("span");
+        sp.textContent = run;
+        if (style) sp.setAttribute("style", style);
+        el.append(sp);
+        run = "";
+      };
+      for (let x = 0; x < line.length; x++) {
+        line.getCell(x, cell);
+        const ch = cell.getChars();
+        if (!ch && cell.getWidth() === 0) continue;
+        const st = cellStyle(cell);
+        if (st !== style) { flush(); style = st; }
+        run += ch || " ";
+      }
+      flush();
+      const t = text[i].replace(/\s+$/, "");
+      if (!t) continue;
+      footer.push({ text: t, el });
+    }
+    return { status, footer };
+  }
+
   private buildChat(): HTMLElement {
     const box = document.createElement("div");
     box.className = "tp-chat";
-    box.innerHTML = `<div class="msgs-list"></div><div class="chat-dock"><div class="chat-ask" hidden></div><div class="chat-work" hidden></div><div class="chat-compose"><textarea class="chat-in" rows="1" placeholder="Message Claude — Enter sends, ⇧Enter new line, Esc interrupts"></textarea><button class="btn primary chat-send" type="button">Send</button></div></div>`;
+    box.innerHTML = `<div class="msgs-list"></div><div class="chat-dock"><div class="chat-ask" hidden></div><div class="chat-work" hidden></div><div class="chat-compose"><textarea class="chat-in" rows="1" placeholder="Message Claude — Enter sends, ⇧Enter new line, Esc interrupts"></textarea><button class="btn primary chat-send" type="button">Send</button></div><div class="chat-foot" hidden></div></div>`;
     const list = box.querySelector<HTMLElement>(".msgs-list")!;
     const ask = box.querySelector<HTMLElement>(".chat-ask")!;
     const work = box.querySelector<HTMLElement>(".chat-work")!;
+    const foot = box.querySelector<HTMLElement>(".chat-foot")!;
     const input = box.querySelector<HTMLTextAreaElement>(".chat-in")!;
     const sendBtn = box.querySelector<HTMLButtonElement>(".chat-send")!;
     const copy = (text: string, what: string) => {
@@ -419,19 +496,39 @@ class Pane {
     // click opens it in the list.
     const drawWork = () => {
       const t = this.tab;
-      work.hidden = t?.state !== "running";
-      if (work.hidden) return;
-      const run = runningTool(shown);
-      const what = run ? `${run.tool}: ${run.text}` : t?.detail || "Thinking…";
-      const time = run?.at ? since(run.at) : "";
-      work.dataset.id = run?.id ?? "";
-      work.title = run ? "Show what it runs" : "";
-      work.classList.toggle("link", !!run);
-      work.innerHTML = `<i class="st running"></i><span></span><small></small><kbd>esc</kbd>`;
-      work.querySelector("span")!.textContent = what;
-      work.querySelector("small")!.textContent = time;
+      // While a question is up, the screen around it isn't the input box.
+      const { status, footer } = t?.state === "waiting" ? { status: "", footer: [] } : this.screenEdges();
+      // The terminal's own status line ("✻ Catapulting… (4m 30s · 639 tokens)",
+      // "Waiting for 1 background agent") says best what goes on; the
+      // running tool call from the transcript says what exactly.
+      const run = t?.state === "running" ? runningTool(shown) : undefined;
+      work.hidden = !status && t?.state !== "running";
+      if (!work.hidden) {
+        const key = `${status}|${run?.id}|${run?.at ? since(run.at) : ""}`;
+        if (work.dataset.key !== key) {
+          work.dataset.key = key;
+          work.dataset.id = run?.id ?? "";
+          work.classList.toggle("busy", t?.state === "running");
+          work.innerHTML = `<i class="st ${t?.state === "running" ? "running" : "idle"}"></i><span class="cw-status"></span><button type="button" class="cw-tool link" hidden></button><kbd>esc</kbd>`;
+          work.querySelector(".cw-status")!.textContent = status || (run ? "" : t?.detail || "Thinking…");
+          const tb = work.querySelector<HTMLButtonElement>(".cw-tool")!;
+          if (run) {
+            tb.hidden = false;
+            tb.textContent = `${run.tool}: ${run.text}${run.at ? ` · ${since(run.at)}` : ""}`;
+            tb.title = "Show what it runs";
+          }
+        }
+      }
+      // Below the input box: mode, background tasks, agents, monitors.
+      const fk = footer.map((l) => l.text).join("\n");
+      if (foot.dataset.key !== fk) {
+        foot.dataset.key = fk;
+        foot.hidden = !footer.length;
+        foot.replaceChildren(...footer.map((l) => l.el));
+      }
     };
-    work.addEventListener("click", () => {
+    work.addEventListener("click", (e) => {
+      if (!(e.target as HTMLElement).closest(".cw-tool")) return;
       const id = work.dataset.id;
       const d = id ? list.querySelector<HTMLDetailsElement>(`.tcall[data-id="${CSS.escape(id)}"]`) : null;
       if (!d) return;
@@ -476,8 +573,10 @@ class Pane {
     this.syncChat = () => { void drawState(); void draw(); };
     void draw();
     void drawState();
-    const timer = window.setInterval(() => { void draw(); drawWork(); }, 2000);
-    this.stopMsgs = () => clearInterval(timer);
+    const timer = window.setInterval(() => void draw(), 2000);
+    // The terminal's bottom lines change by the second (timers, token counts).
+    const ticker = window.setInterval(() => { if (!document.hidden) drawWork(); }, 1000);
+    this.stopMsgs = () => { clearInterval(timer); clearInterval(ticker); };
     return box;
   }
 

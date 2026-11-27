@@ -680,3 +680,12 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .app.slim .proj.ws::before { content: attr(data-short); font: 700 9.5px/1 var(--sans); letter-spacing: .04em; color: var(--accent); }
 .app.slim .proj.ws.shut::after { content: "▸"; font-size: 9px; color: var(--mute); margin-left: 3px; }
 .app.slim .proj.ws.on { box-shadow: inset 0 0 0 1.5px var(--accent); }
+/* The terminal's own lines around Claude's input box, shown in the chat. */
+.chat-work .cw-status { flex: 0 1 auto; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-work.busy .cw-status { color: #e07a5f; }
+.chat-work .cw-tool { flex: 0 1 auto; min-width: 0; border: 0; background: none; padding: 0; color: var(--mute); font: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.chat-work .cw-status:not(:empty) + .cw-tool::before { content: "· "; }
+.chat-work .cw-tool:hover { color: var(--fg); text-decoration: underline; }
+.chat-work kbd { margin-left: auto; }
+.chat-foot { font: 11.5px/1.5 var(--mono); color: var(--mute); max-height: 9.5em; overflow: auto; padding: 0 2px; }
+.chat-foot .cf-line { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
