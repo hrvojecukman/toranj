@@ -83,11 +83,17 @@ export interface Dialog {
 export function screenDialog(text: string[]): Dialog {
   let last = text.length - 1;
   while (last > 0 && !text[last].trim()) last--;
-  let start = Math.max(0, last - 24);
-  for (let i = last - 1; i >= Math.max(0, last - 40); i--) if (rule(text[i])) { start = i + 1; break; }
+  // It starts after the rule above it. A list of options can have a rule of
+  // its own (before "5. Chat about this"), so with numbered options the
+  // search starts above option 1.
+  const OPT = /^\s{0,3}(?:[❯›>]\s*)?(\d{1,2})\.\s+(.+?)\s*$/;
+  let from = last - 1;
+  for (let i = last; i >= Math.max(0, last - 60); i--) if (OPT.exec(text[i])?.[1] === "1") { from = i - 1; break; }
+  let start = Math.max(0, from - 24);
+  for (let i = from; i >= Math.max(0, from - 40); i--) if (rule(text[i])) { start = i + 1; break; }
   const options: { n: string; label: string }[] = [];
   for (let i = start; i <= last; i++) {
-    const m = /^\s{0,3}(?:[❯›>]\s*)?(\d{1,2})\.\s+(.+?)\s*$/.exec(text[i]);
+    const m = OPT.exec(text[i]);
     if (m && !options.some((o) => o.n === m[1])) options.push({ n: m[1], label: m[2] });
   }
   return { lines: [start, last + 1], options, keys: dialogKeys(text.slice(start, last + 1).join("\n")) };
