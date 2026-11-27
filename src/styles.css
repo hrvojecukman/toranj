@@ -716,3 +716,4 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .chat-foot .cf-line.split { display: flex; gap: 12px; }
 .chat-foot .cf-l { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
 .chat-foot .cf-r { flex: none; white-space: pre; }
+.ask-keys .btn kbd { font: 600 11px var(--mono); color: var(--accent); margin-right: 2px; }

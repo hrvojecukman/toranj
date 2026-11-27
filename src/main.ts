@@ -100,6 +100,36 @@ const lightQuery = matchMedia("(prefers-color-scheme: light)");
 const isLight = () => settings.theme === "light" || (settings.theme === "system" && lightQuery.matches);
 const termTheme = () => (isLight() ? LIGHT_TERM : DARK_TERM);
 
+/**
+ * Buttons for a dialog read from the screen: the keys its hint line names
+ * ("←/→ to switch · f to fix · d to show day · Esc to close"), else the
+ * usual ↑ ↓ Enter Esc.
+ */
+function dialogKeys(screen: string): [string, string, string][] {
+  const NAMED: Record<string, string> = {
+    "←": "\x1b[D", "→": "\x1b[C", "↑": "\x1b[A", "↓": "\x1b[B", esc: "\x1b", enter: "\r", "⏎": "\r", return: "\r",
+    tab: "\t", space: " ", "shift+tab": "\x1b[Z", "⇧tab": "\x1b[Z",
+  };
+  const out: [string, string, string][] = [];
+  const seen = new Set<string>();
+  const add = (k: string, title: string) => {
+    const key = k.trim();
+    const data = NAMED[key.toLowerCase()] ?? (/^[a-z0-9]$/i.test(key) ? key : /^ctrl\+([a-z])$/i.test(key) ? String.fromCharCode(key.slice(-1).toLowerCase().charCodeAt(0) - 96) : "");
+    if (!data || seen.has(data)) return;
+    seen.add(data);
+    out.push([key.length === 1 ? key : key[0].toUpperCase() + key.slice(1), data, title]);
+  };
+  // The hint line is the last one with "… to …" parts joined by "·".
+  const hint = screen.split("\n").reverse().find((l) => /\S+ to \S/.test(l) && l.includes("·"));
+  for (const part of hint?.split("·") ?? []) {
+    const m = /^\s*(\S+(?:\s?\/\s?\S+)*)\s+to\s+(.+?)\s*$/.exec(part);
+    if (!m) continue;
+    for (const k of m[1].split("/")) add(k, m[2]);
+  }
+  if (!out.length) for (const [k, t] of [["↑", "Up"], ["↓", "Down"], ["Enter", "Choose the highlighted option"], ["Esc", "Cancel"]]) add(k, t);
+  return out;
+}
+
 /** The invisible terminal under a chat view (see Pane.applyView). */
 const CHAT_TERM_FONT = 8;
 
@@ -743,12 +773,14 @@ class Pane {
       }
       const keys = document.createElement("div");
       keys.className = "ask-keys";
-      for (const [label, data, title] of [["↑", "\x1b[A", "Up"], ["↓", "\x1b[B", "Down"], ["⏎ Enter", "\r", "Choose the highlighted option"], ["Esc", "\x1b", "Cancel"]] as const) {
+      for (const [label, data, title] of dialogKeys(d.key)) {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "btn";
-        b.textContent = label;
-        b.title = title;
+        const k = document.createElement("kbd");
+        k.textContent = label;
+        b.append(k, ` ${title}`);
+        b.title = `${label}: ${title}`;
         b.onclick = () => press(data);
         keys.append(b);
       }
