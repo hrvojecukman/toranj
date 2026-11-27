@@ -289,12 +289,23 @@ class Pane {
     // A Claude restart can show another agent for a snapshot or two: the
     // chat (with an unsent draft) stays until that lasts.
     if (this.tab?.agent !== "claude" && !(this.chat && this.notClaude < 3)) return "term";
+    if (this.peeking) return "term";
     return paneViews[this.name] ?? settings.claudeView;
   }
   private notClaude = 0;
+  /** The terminal is shown for a moment, without changing the pane's choice:
+   *  an agent opened from the chat shows its conversation only there. */
+  private peeking = false;
+  peekTerminal() {
+    if (this.peeking || this.view() !== "chat") return;
+    this.peeking = true;
+    this.applyView();
+    this.term.focus();
+  }
 
   toggleView() {
     if (this.tab?.agent !== "claude") return;
+    if (this.peeking) { this.peeking = false; this.applyView(); this.focus(); return; }
     const next = this.view() === "chat" ? "term" : "chat";
     if (next === settings.claudeView) delete paneViews[this.name];
     else paneViews[this.name] = next;
@@ -323,6 +334,9 @@ class Pane {
     btn.hidden = this.tab?.agent !== "claude";
     btn.innerHTML = `${chat ? "Terminal" : "Chat"} <kbd>⌘J</kbd>`;
     btn.title = chat ? "Show the terminal (⌘J)" : "Show the conversation as messages, easy to copy (⌘J)";
+    // Peeking at an agent: the way back is highlighted.
+    btn.classList.toggle("on", this.peeking);
+    if (this.peeking) btn.title = "Back to the chat (⌘J)";
     if (chat === !!this.chat) return;
     const hadFocus = this.el.contains(document.activeElement);
     if (chat) {
@@ -484,8 +498,20 @@ class Pane {
       // terminal: ↓ manages background agents, ← → switch to one, ↑ recalls.
       const empty = !input.value;
       const ARROWS: Record<string, string> = { ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", ArrowRight: "\x1b[C", ArrowLeft: "\x1b[D" };
-      if (empty && !e.shiftKey && !e.altKey && !e.metaKey && ARROWS[e.key]) { e.preventDefault(); key(ARROWS[e.key]); setTimeout(drawWork, 150); setTimeout(drawWork, 500); }
-      else if (e.key === "Enter" && empty && !e.shiftKey && !e.altKey) { e.preventDefault(); key("\r"); setTimeout(drawWork, 150); setTimeout(drawWork, 500); }
+      // Opening an agent (Enter in the agent list, or ← →) shows its
+      // conversation in the terminal only: show the terminal until ⌘J.
+      const agents = /agent|manage/i.test(foot.dataset.key ?? "");
+      if (empty && !e.shiftKey && !e.altKey && !e.metaKey && ARROWS[e.key]) {
+        e.preventDefault();
+        key(ARROWS[e.key]);
+        if (agents && (e.key === "ArrowLeft" || e.key === "ArrowRight")) setTimeout(() => this.peekTerminal(), 250);
+        else { setTimeout(drawWork, 150); setTimeout(drawWork, 500); }
+      } else if (e.key === "Enter" && empty && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        key("\r");
+        if (agents) setTimeout(() => this.peekTerminal(), 250);
+        else { setTimeout(drawWork, 150); setTimeout(drawWork, 500); }
+      }
       else if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); void send(); }
       else if (e.key === "Escape") { e.preventDefault(); key("\x1b"); } // interrupt, as in the terminal
       else if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); key("\x1b[Z"); } // Claude's mode cycle
