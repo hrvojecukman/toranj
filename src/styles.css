@@ -568,16 +568,12 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .sess.recent:hover .rc-x, .sess.recent:focus-within .rc-x { visibility: visible; }
 .sess.recent .rc-x:hover { color: var(--fg); }
 
-/* Messages drawer: the conversation beside the terminal, easy to copy. */
+/* Chat view: the conversation as messages, easy to copy, with a composer. */
 .tp-mid { flex: 1; min-height: 0; display: flex; }
 .tp-mid .tp-host { flex: 1; min-width: 0; }
 .tp-msgs-btn { margin-left: auto; flex: none; border: 1px solid var(--line); background: none; color: var(--mute); border-radius: 5px; padding: 1px 7px; font-size: 11.5px; cursor: pointer; }
 .tp-msgs-btn:hover, .tp-msgs-btn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
 .tp-msgs-btn kbd { font-size: 10.5px; margin-left: 3px; }
-.tp-msgs { flex: none; width: clamp(280px, 38%, 560px); display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bg); min-height: 0; }
-.msgs-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
-.msgs-x { border: 0; background: none; color: var(--mute); font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
-.msgs-x:hover { background: var(--line); color: var(--fg); }
 .msgs-list { flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; user-select: text; -webkit-user-select: text; cursor: auto; }
 .msgs-note { color: var(--mute); font-size: 12.5px; margin: auto; text-align: center; padding: 20px; }
 .dmsg { border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px 10px; background: var(--term); font-size: 13px; line-height: 1.5; }
@@ -602,3 +598,23 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .copy-para:hover { color: var(--accent); background: var(--line); }
 .dmsg, .dmsg .mtext > * { min-width: 0; }
 .dmsg .code { overflow: hidden; }
+.tp-host[hidden] { display: none; }
+.tp-chat { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+.tp-chat .msgs-list { padding: 14px max(14px, calc((100% - 860px) / 2)); gap: 12px; }
+.tp-chat .dmsg { font-size: 13.5px; padding: 8px 12px 12px; }
+.tp-chat .dmsg.user { align-self: flex-end; max-width: 85%; }
+.chat-dock { flex: none; border-top: 1px solid var(--line); padding: 8px max(12px, calc((100% - 860px) / 2)) 10px; display: grid; gap: 8px; }
+.chat-dock > [hidden] { display: none; }
+.chat-work { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--mute); min-width: 0; }
+.chat-work span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.chat-ask { border: 1px solid var(--line); border-left: 3px solid var(--wait, #f0a63a); border-radius: 8px; padding: 8px 10px; background: var(--term); max-height: min(300px, 40vh); overflow: auto; }
+.chat-ask pre { margin: 0 0 8px; font: 12px/1.45 var(--mono); white-space: pre-wrap; }
+.chat-ask p { margin: 0 0 8px; font-size: 13px; }
+.chat-choices { display: grid; gap: 5px; }
+.chat-choice { text-align: left; white-space: normal; padding: 6px 10px; font-size: 12.5px; }
+.chat-choice:first-child { border-color: var(--accent); color: var(--accent); }
+.chat-compose { display: flex; gap: 8px; align-items: flex-end; }
+.chat-in { flex: 1; resize: none; font: 13.5px/1.45 inherit; font-family: inherit; color: var(--fg); background: var(--term); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; max-height: 200px; }
+.chat-in:focus { outline: none; border-color: var(--accent); }
+.chat-send { padding: 7px 14px; }
+.tp-chat .msgs-list { min-height: 0; }

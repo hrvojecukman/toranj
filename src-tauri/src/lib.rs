@@ -131,6 +131,14 @@ async fn peek_tab(name: String) -> Result<tmux::Peek, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Chat view: a message typed beside the terminal, sent as one paste and Enter.
+#[tauri::command]
+async fn send_text(name: String, text: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || tmux::send_with_files(&name, &text, &[]))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn answer_tab(name: String, key: String, fingerprint: String) -> Result<(), String> {
     if !(key.len() == 1 && key.chars().all(|c| ('1'..='9').contains(&c))) {
@@ -442,6 +450,7 @@ pub fn run() {
             icons::project_icon,
             history::recent_sessions,
             phone::conversation,
+            send_text,
             mobile::mobile_status,
             mobile::mobile_set_enabled,
             mobile::mobile_pair,

@@ -56,7 +56,7 @@ function openLink(e: MouseEvent, uri: string) {
 // ---------- settings ----------
 // Stored in this app's localStorage: a per-machine preference.
 type Theme = "dark" | "light" | "system";
-interface Settings { fontSize: number; theme: Theme; sound: boolean; doneSound: string; waitSound: string; quickSecs: number; quickKey: string; backKeys: string }
+interface Settings { fontSize: number; theme: Theme; sound: boolean; doneSound: string; waitSound: string; quickSecs: number; quickKey: string; backKeys: string; claudeView: "term" | "chat" }
 /** Quick open: how long a new dock card listens for its key (0 = off), and the keys offered. */
 const QUICK_SECS = [0, 5, 10, 20];
 const QUICK_KEYS: Record<string, string> = { Space: "Space", Return: "Enter", "→ (right arrow)": "ArrowRight", "Tab": "Tab" };
@@ -77,7 +77,7 @@ function soundFor(kind: Kind): string {
 }
 
 function loadSettings(): Settings {
-  const d: Settings = { fontSize: 13, theme: "dark", sound: true, doneSound: "Glass", waitSound: "Ping", quickSecs: 10, quickKey: "Space", backKeys: "bracket" };
+  const d: Settings = { fontSize: 13, theme: "dark", sound: true, doneSound: "Glass", waitSound: "Ping", quickSecs: 10, quickKey: "Space", backKeys: "bracket", claudeView: "term" };
   try {
     const s = JSON.parse(localStorage.getItem("toranj.settings") ?? "{}");
     const fs = typeof s.fontSize === "number" ? s.fontSize : NaN;
@@ -90,6 +90,7 @@ function loadSettings(): Settings {
       quickSecs: QUICK_SECS.includes(s.quickSecs) ? s.quickSecs : d.quickSecs,
       quickKey: Object.values(QUICK_KEYS).includes(s.quickKey) ? s.quickKey : d.quickKey,
       backKeys: ["bracket", "arrows", "optarrows", "ctrlarrows"].includes(s.backKeys) ? s.backKeys : d.backKeys,
+      claudeView: s.claudeView === "chat" ? "chat" : "term",
     };
   } catch { return d; }
 }
@@ -152,13 +153,13 @@ class Pane {
     this.host.className = "tp-host";
     const foot = document.createElement("div");
     foot.className = "tp-foot";
-    foot.innerHTML = `<i class="pi" aria-hidden="true"></i><b></b><span></span><button class="tp-msgs-btn" type="button" title="The conversation as messages, each easy to copy (⌘J)" hidden>Messages <kbd>⌘J</kbd></button>`;
-    foot.querySelector(".tp-msgs-btn")!.addEventListener("click", () => this.toggleMessages());
+    foot.innerHTML = `<i class="pi" aria-hidden="true"></i><b></b><span></span><button class="tp-msgs-btn" type="button" hidden></button>`;
+    foot.querySelector(".tp-msgs-btn")!.addEventListener("click", () => this.toggleView());
     const mid = document.createElement("div");
     mid.className = "tp-mid";
     mid.append(this.host);
     this.el.append(mid, foot);
-    if (msgsOpen.has(name)) queueMicrotask(() => this.toggleMessages(true));
+
     parent.append(this.el);
 
     const t = this.term;
@@ -239,7 +240,9 @@ class Pane {
     (this.el.firstChild as HTMLElement).addEventListener("contextmenu", (e) => tabMenu(e, this.name));
   }
 
-  refit() { try { this.fit.fit(); } catch {} }
+  // Hidden (chat view), the terminal keeps its size: fitting a hidden pane
+  // would shrink the program's screen.
+  refit() { if (this.host.hidden) return; try { this.fit.fit(); } catch {} }
 
   async attach() {
     this.refit();
@@ -256,39 +259,112 @@ class Pane {
     }
   }
 
-  // ---------- Messages drawer ----------
-  private drawer: HTMLElement | null = null;
+  // ---------- Chat view ----------
+  private chat: HTMLElement | null = null;
   private stopMsgs: () => void = () => {};
+  private tab: Tab | undefined;
+  private syncChat: () => void = () => {};
 
-  /** The Claude conversation beside the terminal, as messages with Copy. */
-  toggleMessages(on = !this.drawer) {
-    if (!on) {
-      this.stopMsgs();
-      this.drawer?.remove();
-      this.drawer = null;
-      msgsOpen.delete(this.name);
-    } else if (!this.drawer) {
-      this.drawer = this.buildDrawer();
-      this.el.querySelector(".tp-mid")!.append(this.drawer);
-      msgsOpen.add(this.name);
-    }
-    saveMsgsOpen();
-    this.el.querySelector(".tp-msgs-btn")?.classList.toggle("on", !!this.drawer);
-    requestAnimationFrame(() => this.refit());
+  /** Chat (the conversation as messages) or Terminal: this terminal's own
+   *  choice (⌘J), else Settings' default for Claude terminals. */
+  view(): "term" | "chat" {
+    if (this.tab?.agent !== "claude") return "term";
+    return paneViews[this.name] ?? settings.claudeView;
   }
 
-  private buildDrawer(): HTMLElement {
-    const box = document.createElement("aside");
-    box.className = "tp-msgs";
-    box.innerHTML = `<div class="msgs-head"><b>Messages</b><button class="msgs-x" type="button" title="Close (⌘J)" aria-label="Close messages">×</button></div><div class="msgs-list"></div>`;
-    box.querySelector(".msgs-x")!.addEventListener("click", () => this.toggleMessages(false));
+  toggleView() {
+    if (this.tab?.agent !== "claude") return;
+    const next = this.view() === "chat" ? "term" : "chat";
+    if (next === settings.claudeView) delete paneViews[this.name];
+    else paneViews[this.name] = next;
+    savePaneViews();
+    this.applyView();
+    this.focus();
+  }
+
+  /** Keyboard focus where typing goes in the current view. */
+  focus() {
+    if (this.chat) this.chat.querySelector<HTMLTextAreaElement>(".chat-in")?.focus();
+    else this.term.focus();
+  }
+
+  /** Called with every snapshot. */
+  sync(t: Tab) {
+    this.tab = t;
+    this.applyView();
+    this.syncChat();
+  }
+
+  applyView() {
+    const chat = this.view() === "chat";
+    const btn = this.el.querySelector<HTMLElement>(".tp-msgs-btn")!;
+    btn.hidden = this.tab?.agent !== "claude";
+    btn.innerHTML = `${chat ? "Terminal" : "Chat"} <kbd>⌘J</kbd>`;
+    btn.title = chat ? "Show the terminal (⌘J)" : "Show the conversation as messages, easy to copy (⌘J)";
+    if (chat === !!this.chat) return;
+    const hadFocus = this.el.contains(document.activeElement);
+    if (chat) {
+      this.chat = this.buildChat();
+      this.el.querySelector(".tp-mid")!.append(this.chat);
+      this.host.hidden = true;
+    } else {
+      this.stopMsgs();
+      this.syncChat = () => {};
+      this.chat?.remove();
+      this.chat = null;
+      this.host.hidden = false;
+      requestAnimationFrame(() => this.refit());
+    }
+    this.el.classList.toggle("chat-mode", chat);
+    if (hadFocus) this.focus();
+  }
+
+  private buildChat(): HTMLElement {
+    const box = document.createElement("div");
+    box.className = "tp-chat";
+    box.innerHTML = `<div class="msgs-list"></div><div class="chat-dock"><div class="chat-ask" hidden></div><div class="chat-work" hidden></div><div class="chat-compose"><textarea class="chat-in" rows="1" placeholder="Message Claude — Enter sends, ⇧Enter new line, Esc interrupts"></textarea><button class="btn primary chat-send" type="button">Send</button></div></div>`;
     const list = box.querySelector<HTMLElement>(".msgs-list")!;
+    const ask = box.querySelector<HTMLElement>(".chat-ask")!;
+    const work = box.querySelector<HTMLElement>(".chat-work")!;
+    const input = box.querySelector<HTMLTextAreaElement>(".chat-in")!;
+    const sendBtn = box.querySelector<HTMLButtonElement>(".chat-send")!;
     const copy = (text: string, what: string) => {
       navigator.clipboard.writeText(text).then(() => this.copied(what), () => this.copied("Couldn’t copy"));
     };
+
+    // Composer: typed here, sent to the terminal as one paste and Enter.
+    const grow = () => { input.style.height = "auto"; input.style.height = `${Math.min(200, input.scrollHeight)}px`; };
+    let sending = false;
+    const send = async () => {
+      const text = input.value.trim();
+      if (!text || sending) return;
+      sending = true;
+      sendBtn.disabled = true;
+      try {
+        await invoke("send_text", { name: this.name, text });
+        input.value = "";
+        grow();
+        stick = true;
+        setTimeout(() => void draw(), 500);
+      } catch (e) { this.copied(String(e)); }
+      sending = false;
+      sendBtn.disabled = false;
+    };
+    const key = (data: string) => { if (this.attachId !== null) invoke("write", { id: this.attachId, data }); };
+    input.addEventListener("input", grow);
+    input.addEventListener("keydown", (e) => {
+      if (e.isComposing || e.keyCode === 229) return;
+      if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); void send(); }
+      else if (e.key === "Escape") { e.preventDefault(); key("\x1b"); } // interrupt, as in the terminal
+      else if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); key("\x1b[Z"); } // Claude's mode cycle
+    });
+    sendBtn.addEventListener("click", () => void send());
+
+    // Messages.
     let shown: { id: string; text: string }[] = [];
     let stick = true;
     list.addEventListener("scroll", () => { stick = list.scrollHeight - list.scrollTop - list.clientHeight < 60; });
+    new ResizeObserver(() => { if (stick) list.scrollTop = list.scrollHeight; }).observe(list);
     const selecting = () => {
       const sel = document.getSelection();
       return !!sel && !sel.isCollapsed && sel.rangeCount > 0 && list.contains(sel.getRangeAt(0).commonAncestorContainer);
@@ -297,18 +373,15 @@ class Pane {
     let busy = false;
     const draw = async () => {
       if (busy || document.hidden || selecting()) return;
-      const t = snap.tabs.find((x) => x.name === this.name);
-      if (!t || t.agent !== "claude" || !t.session_id) {
-        note("Messages are shown for Claude terminals once the conversation has started.");
-        return;
-      }
+      const t = this.tab;
+      if (!t?.session_id) { if (!shown.length) note("The conversation shows here once Claude has started it."); return; }
       busy = true;
       let msgs: { id: string; role: string; text: string; at: string }[];
       try { msgs = await invoke("conversation", { sessionId: t.session_id, cwd: t.cwd }); }
       catch { msgs = []; }
       finally { busy = false; }
-      if (!this.drawer || selecting()) return;
-      if (!msgs.length) { if (!shown.length) note("No messages yet."); return; }
+      if (!box.isConnected || selecting()) return;
+      if (!msgs.length) { if (!shown.length) note("No messages yet. Write below to start."); return; }
       if (!shown.length) list.replaceChildren();
       // Old messages fall off the front as new ones come; the rest is kept
       // so a selection or the scroll position isn't disturbed.
@@ -333,7 +406,43 @@ class Pane {
       shown = msgs.map((m) => ({ id: m.id, text: m.text }));
       if (stick || grew) list.scrollTop = list.scrollHeight;
     };
+
+    // A question Claude asks, answered here; and what it's doing meanwhile.
+    let askKey = "";
+    const drawState = async () => {
+      const t = this.tab;
+      if (!t) return;
+      work.hidden = t.state !== "running";
+      if (!work.hidden) work.innerHTML = `<i class="st running"></i><span>${escapeHtml(t.detail || "Working…")}</span><kbd>esc</kbd>`;
+      if (t.state !== "waiting") { ask.hidden = true; askKey = ""; return; }
+      const k = `${t.since}:${t.detail}`;
+      if (k === askKey) return;
+      askKey = k;
+      const p = await invoke<Peek>("peek_tab", { name: this.name }).catch(() => null);
+      if (!box.isConnected || askKey !== k) return;
+      if (!p?.prompt) {
+        ask.hidden = false;
+        ask.innerHTML = `<p>${escapeHtml(t.detail || "Claude is waiting for you.")}</p><button class="btn" type="button">Show terminal</button>`;
+        ask.querySelector("button")!.onclick = () => this.toggleView();
+        return;
+      }
+      const pr = p.prompt;
+      ask.hidden = false;
+      ask.innerHTML = `<pre></pre><div class="chat-choices"></div>`;
+      ask.querySelector("pre")!.textContent = pr.context.join("\n");
+      const row = ask.querySelector(".chat-choices")!;
+      for (const c of pr.choices) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn chat-choice";
+        b.textContent = `${c.key}. ${c.label}`;
+        b.onclick = () => { row.querySelectorAll("button").forEach((x) => { (x as HTMLButtonElement).disabled = true; }); void answer(this.name, c.key, pr.fingerprint).then(() => { askKey = ""; this.syncChat(); }); };
+        row.append(b);
+      }
+    };
+    this.syncChat = () => { void drawState(); void draw(); };
     void draw();
+    void drawState();
     const timer = window.setInterval(() => void draw(), 2000);
     this.stopMsgs = () => clearInterval(timer);
     return box;
@@ -352,9 +461,14 @@ class Pane {
 }
 
 const panes = new Map<string, Pane>();
-/** Terminals whose Messages drawer is open (kept across restarts). */
-const msgsOpen = new Set<string>((() => { try { return JSON.parse(localStorage.getItem("toranj.msgsOpen") ?? "[]") as string[]; } catch { return []; } })());
-function saveMsgsOpen() { try { localStorage.setItem("toranj.msgsOpen", JSON.stringify([...msgsOpen])); } catch { /* full */ } }
+/** Terminals shown another way than Settings' default (⌘J), kept across restarts. */
+const paneViews: Record<string, "term" | "chat"> = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem("toranj.paneViews") ?? "{}");
+    return v && typeof v === "object" ? v : {};
+  } catch { return {}; }
+})();
+function savePaneViews() { try { localStorage.setItem("toranj.paneViews", JSON.stringify(paneViews)); } catch { /* full */ } }
 let current: string | null = null;
 /** Tabs being closed: hidden right away, before the next snapshot drops them. */
 const closing = new Set<string>();
@@ -551,7 +665,7 @@ function paintPanes() {
     setText(p.el, ".tp-foot b", fullLabel(proj));
     setText(p.el, ".tp-foot span", t.title ? `· ${t.title}` : "");
     (p.el.querySelector(".tp-foot b") as HTMLElement).style.color = projectColor(proj);
-    (p.el.querySelector(".tp-msgs-btn") as HTMLElement).hidden = t.agent !== "claude";
+    p.sync(t);
   }
 }
 
@@ -684,7 +798,7 @@ function open(name: string) {
   doneMarks.delete(name); // looking at a finished tab marks it as seen
   layoutPanes();
   render();
-  panes.get(name)?.term.focus();
+  panes.get(name)?.focus();
 }
 
 function setLayout(layout: Layout) {
@@ -707,7 +821,7 @@ function toggleLayout() {
 function startDrag(e: PointerEvent, name: string) {
   if (e.button !== 0) return;
   focusTab(name); // preventDefault below also stops the mousedown that would do this
-  panes.get(name)?.term.focus();
+  panes.get(name)?.focus();
   if (panes.size < 2) return;
   e.preventDefault();
   const from = panes.get(name)!.el;
@@ -740,7 +854,7 @@ function startDrag(e: PointerEvent, name: string) {
       org.order = [...list, ...org.order.filter((k) => !list.includes(k))];
       saveOrg();
       layoutPanes();
-      panes.get(name)?.term.focus();
+      panes.get(name)?.focus();
       return;
     }
     const order = groupTabs(cur).map((t) => t.name);
@@ -749,7 +863,7 @@ function startDrag(e: PointerEvent, name: string) {
     [order[a], order[b]] = [order[b], order[a]];
     savePrefs(key, { ...prefsFor(key), order });
     layoutPanes();
-    panes.get(name)?.term.focus();
+    panes.get(name)?.focus();
   };
   window.addEventListener("pointermove", over);
   window.addEventListener("pointerup", up);
@@ -872,7 +986,7 @@ function promptText(title: string, value: string, note = ""): Promise<string | n
   return new Promise((resolve) => {
     dlg.addEventListener("close", () => {
       resolve(dlg.returnValue === "yes" ? input.value.trim() : null);
-      panes.get(current ?? "")?.term.focus();
+      panes.get(current ?? "")?.focus();
     }, { once: true });
   });
 }
@@ -1933,7 +2047,7 @@ function toggleOverview(show = !ovShown()) {
   if (overview) rememberView("");
   render();
   if (overview) $("overview").focus();
-  else panes.get(current ?? "")?.term.focus();
+  else panes.get(current ?? "")?.focus();
 }
 
 interface OvProject { key: string; tabs: Tab[]; git?: Git; score: number }
@@ -2225,6 +2339,12 @@ function applySettings() {
     b.classList.toggle("on", b.dataset.theme === settings.theme);
     b.setAttribute("aria-pressed", String(b.dataset.theme === settings.theme));
   });
+  $("set-view").querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
+    const on = b.dataset.view === settings.claudeView;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+  });
+  for (const p of panes.values()) p.applyView();
   $("set-sound").querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
     const on = (b.dataset.sound === "on") === settings.sound;
     b.classList.toggle("on", on);
@@ -2434,6 +2554,9 @@ backKeysPicker = picker($("set-back"), Object.values(BACK_KEYS).map((k) => k.lab
   settings.backKeys = Object.entries(BACK_KEYS).find(([, k]) => k.label === v)?.[0] ?? "bracket";
   saveSettings(); applySettings();
 });
+$("set-view").querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
+  b.onclick = () => { settings.claudeView = b.dataset.view === "chat" ? "chat" : "term"; saveSettings(); applySettings(); };
+});
 $("set-sound").querySelectorAll<HTMLButtonElement>("button").forEach((b) => {
   b.onclick = () => {
     settings.sound = b.dataset.sound === "on";
@@ -2452,7 +2575,7 @@ $("set-test").onclick = () => {
     b.textContent = "Send a test notification";
   }, 5000);
 };
-$("set-dlg").addEventListener("close", () => { hidePair(); panes.get(current ?? "")?.term.focus(); });
+$("set-dlg").addEventListener("close", () => { hidePair(); panes.get(current ?? "")?.focus(); });
 lightQuery.addEventListener("change", () => { if (settings.theme === "system") applySettings(); });
 
 // ---------- quick switch (⌘K) ----------
@@ -2590,7 +2713,7 @@ $("pal-q").addEventListener("keydown", (e) => {
 $("pal-dlg").addEventListener("click", (e) => { if (e.target === $("pal-dlg")) $<HTMLDialogElement>("pal-dlg").close(); });
 $("pal-dlg").addEventListener("close", () => {
   // Back to the terminal unless the chosen item opened something else.
-  if (!document.querySelector("dialog[open]") && !ovShown()) panes.get(current ?? "")?.term.focus();
+  if (!document.querySelector("dialog[open]") && !ovShown()) panes.get(current ?? "")?.focus();
 });
 
 // ---------- waiting dock ----------
@@ -3280,7 +3403,7 @@ function hideMenu() { $("ctx").hidden = true; }
 $("ctx").addEventListener("keydown", (e) => {
   const btns = [...$("ctx").querySelectorAll<HTMLButtonElement>("button")];
   const i = btns.indexOf(document.activeElement as HTMLButtonElement);
-  if (e.key === "Escape") { e.preventDefault(); hideMenu(); panes.get(current ?? "")?.term.focus(); }
+  if (e.key === "Escape") { e.preventDefault(); hideMenu(); panes.get(current ?? "")?.focus(); }
   else if (e.key === "ArrowDown") { e.preventDefault(); btns[(i + 1) % btns.length].focus(); }
   else if (e.key === "ArrowUp") { e.preventDefault(); btns[(i - 1 + btns.length) % btns.length].focus(); }
 });
@@ -3312,7 +3435,7 @@ function askClose(name: string) {
   dlg.returnValue = "";
   dlg.onclose = async () => {
     const stop = dlg.returnValue === "stop";
-    if (dlg.returnValue !== "yes" && !stop) { panes.get(current ?? "")?.term.focus(); return; }
+    if (dlg.returnValue !== "yes" && !stop) { panes.get(current ?? "")?.focus(); return; }
     // Hide the tab and move focus first, so a refresh during kill_tab does
     // not attach to it again. Stopping a background session can fail, so
     // that tab keeps its pane until it is really gone.
@@ -3354,7 +3477,7 @@ function askCloseAll(names: string[], where: string) {
   const dlg = $<HTMLDialogElement>("kill-dlg");
   dlg.returnValue = "";
   dlg.onclose = async () => {
-    if (dlg.returnValue !== "yes") { panes.get(current ?? "")?.term.focus(); return; }
+    if (dlg.returnValue !== "yes") { panes.get(current ?? "")?.focus(); return; }
     for (const t of tabs) {
       closing.add(t.name);
       panes.get(t.name)?.dispose();
@@ -3390,7 +3513,7 @@ window.addEventListener("keydown", (e) => {
   else if (e.key === "0") { e.preventDefault(); if (!document.querySelector("dialog[open]")) toggleOverview(); }
   else if (e.key === "u") { e.preventDefault(); nextWaiting(); }
   else if (e.key === "g") { e.preventDefault(); if (!ovShown()) toggleLayout(); }
-  else if (e.key === "j" && !e.shiftKey && !e.altKey) { e.preventDefault(); if (current && !ovShown()) panes.get(current)?.toggleMessages(); }
+  else if (e.key === "j" && !e.shiftKey && !e.altKey) { e.preventDefault(); if (current && !ovShown()) panes.get(current)?.toggleView(); }
   // macOS: the app menu handles ⌘W (see toranj://close-tab); this covers
   // platforms without that menu.
   else if (e.key === "w") { e.preventDefault(); closeCurrent(); }
