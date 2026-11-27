@@ -286,9 +286,12 @@ class Pane {
   /** Chat (the conversation as messages) or Terminal: this terminal's own
    *  choice (⌘J), else Settings' default for Claude terminals. */
   view(): "term" | "chat" {
-    if (this.tab?.agent !== "claude") return "term";
+    // A Claude restart can show another agent for a snapshot or two: the
+    // chat (with an unsent draft) stays until that lasts.
+    if (this.tab?.agent !== "claude" && !(this.chat && this.notClaude < 3)) return "term";
     return paneViews[this.name] ?? settings.claudeView;
   }
+  private notClaude = 0;
 
   toggleView() {
     if (this.tab?.agent !== "claude") return;
@@ -309,6 +312,7 @@ class Pane {
   /** Called with every snapshot. */
   sync(t: Tab) {
     this.tab = t;
+    this.notClaude = t.agent === "claude" ? 0 : this.notClaude + 1;
     this.applyView();
     this.syncChat();
   }
@@ -433,7 +437,7 @@ class Pane {
         input.value = "";
         grow();
         stick = true;
-        setTimeout(() => void draw(), 500);
+        setTimeout(() => { if (live()) void draw(); }, 500);
       } catch (e) { this.copied(String(e)); }
       sending = false;
       sendBtn.disabled = false;
@@ -453,12 +457,13 @@ class Pane {
     let known = 0;
     let stick = true;
     list.addEventListener("scroll", () => { stick = list.scrollHeight - list.scrollTop - list.clientHeight < 60; });
-    new ResizeObserver(() => { if (stick) list.scrollTop = list.scrollHeight; }).observe(list);
+    const ro = new ResizeObserver(() => { if (stick) list.scrollTop = list.scrollHeight; });
+    ro.observe(list);
     const selecting = () => {
       const sel = document.getSelection();
       return !!sel && !sel.isCollapsed && sel.rangeCount > 0 && list.contains(sel.getRangeAt(0).commonAncestorContainer);
     };
-    const note = (text: string) => { shown = []; known = 0; list.replaceChildren(Object.assign(document.createElement("p"), { className: "msgs-note", textContent: text })); };
+    const note = (text: string) => { shown = []; known = 0; list.replaceChildren(...(text ? [Object.assign(document.createElement("p"), { className: "msgs-note", textContent: text })] : [])); };
     const render = (m: ChatItem): HTMLElement => {
       if (m.role === "tool") return renderTool(m, copy);
       const at = new Date(m.at);
@@ -473,16 +478,21 @@ class Pane {
       return item;
     };
     let busy = false;
+    let drawnFor = "";
+    const live = () => box.isConnected && !this.disposed;
     const draw = async () => {
-      if (busy || document.hidden || selecting()) return;
+      if (busy || !live() || document.hidden || selecting()) return;
       const t = this.tab;
-      if (!t?.session_id) { if (!shown.length) note("The conversation shows here once Claude has started it."); return; }
+      // Another conversation (/clear, a new session): start the list over.
+      if ((t?.session_id ?? "") !== drawnFor) { drawnFor = t?.session_id ?? ""; note(""); }
+      if (!t?.session_id) { note("The conversation shows here once Claude has started it."); return; }
       busy = true;
       let conv: { len: number; items?: ChatItem[] } | null;
       try { conv = await invoke("conversation", { sessionId: t.session_id, cwd: t.cwd, known }); }
       catch { conv = null; }
       finally { busy = false; }
-      if (!box.isConnected || selecting() || !conv) { drawWork(); return; }
+      if (!live() || t.session_id !== drawnFor) return;
+      if (selecting() || !conv) { drawWork(); return; }
       if (!conv.items) { drawWork(); return; }
       known = conv.len;
       if (!conv.items.length) { if (!shown.length) note("No messages yet. Write below to start."); return; }
@@ -495,6 +505,7 @@ class Pane {
     // While Claude works: the tool call running now and for how long; a
     // click opens it in the list.
     const drawWork = () => {
+      if (!live()) return;
       const t = this.tab;
       // While a question is up, the screen around it isn't the input box.
       const { status, footer } = t?.state === "waiting" ? { status: "", footer: [] } : this.screenEdges();
@@ -576,7 +587,7 @@ class Pane {
     const timer = window.setInterval(() => void draw(), 2000);
     // The terminal's bottom lines change by the second (timers, token counts).
     const ticker = window.setInterval(() => { if (!document.hidden) drawWork(); }, 1000);
-    this.stopMsgs = () => { clearInterval(timer); clearInterval(ticker); };
+    this.stopMsgs = () => { clearInterval(timer); clearInterval(ticker); ro.disconnect(); };
     return box;
   }
 
@@ -792,6 +803,8 @@ const paneDone = new Map<string, State>();
 
 function paintPanes() {
   const multi = panes.size > 1;
+  // A closed terminal's view choice goes with it (names are reused).
+  if (snap.tabs.length) for (const n of Object.keys(paneViews)) if (!snap.tabs.some((t) => t.name === n)) { delete paneViews[n]; savePaneViews(); }
   for (const p of panes.values()) {
     const t = snap.tabs.find((x) => x.name === p.name);
     p.el.classList.toggle("on", p.name === current);
@@ -3681,8 +3694,8 @@ window.addEventListener("keydown", (e) => {
   else if (e.key === "0") { e.preventDefault(); if (!document.querySelector("dialog[open]")) toggleOverview(); }
   else if (e.key === "u") { e.preventDefault(); nextWaiting(); }
   else if (e.key === "g") { e.preventDefault(); if (!ovShown()) toggleLayout(); }
-  else if (e.key === "b" && !e.shiftKey && !e.altKey) { e.preventDefault(); toggleRail(); }
-  else if (e.key === "j" && !e.shiftKey && !e.altKey) { e.preventDefault(); if (current && !ovShown()) panes.get(current)?.toggleView(); }
+  else if (e.key.toLowerCase() === "b" && !e.shiftKey && !e.altKey) { e.preventDefault(); toggleRail(); }
+  else if (e.key.toLowerCase() === "j" && !e.shiftKey && !e.altKey) { e.preventDefault(); if (current && !ovShown()) panes.get(current)?.toggleView(); }
   // macOS: the app menu handles ⌘W (see toranj://close-tab); this covers
   // platforms without that menu.
   else if (e.key === "w") { e.preventDefault(); closeCurrent(); }

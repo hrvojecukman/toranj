@@ -340,6 +340,8 @@ fn running() -> bool {
 /// Binds 127.0.0.1 (the saved port, or a new one) and serves until `stop`.
 /// The lock is held throughout, so two calls can't start two servers.
 fn start() -> Result<u16, String> {
+    // Copies made while no phone looks still get their time.
+    crate::phone::watch_clipboard();
     let mut slot = STOP.lock().unwrap_or_else(|e| e.into_inner());
     if slot.is_some() {
         return Ok(with_cfg(|c| c.port));
@@ -923,8 +925,12 @@ struct UploadQ {
 }
 
 /// A file to attach to a message, saved on the Mac; answers its path.
-async fn api_upload(h: HeaderMap, Query(q): Query<UploadQ>, body: axum::body::Bytes) -> ApiResult {
+async fn api_upload(h: HeaderMap, Query(q): Query<UploadQ>, body: axum::body::Body) -> ApiResult {
+    // The token is checked before the body is read.
     let device = auth(&h)?;
+    let body = axum::body::to_bytes(body, crate::phone::UPLOAD_MAX + 1)
+        .await
+        .map_err(|_| (StatusCode::PAYLOAD_TOO_LARGE, "file too large".to_string()))?;
     let tag = format!("{}{}", &sha_hex(&device)[..6], B64.encode(random_bytes::<6>()).replace(['-', '_'], "x"));
     let path = blocking(move || crate::phone::save_upload(&q.name, &body, &tag)).await?;
     Ok(Json(serde_json::json!({ "path": path })).into_response())

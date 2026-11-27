@@ -497,7 +497,9 @@ function sheet(title: string, ...kids: Kid[]): () => void {
 }
 
 // ---------- the Mac's clipboard ----------
-interface Clip { text: string; from: "mac" | "terminal"; id: string }
+interface Clip { text: string; from: "mac" | "terminal"; id: string; age: number }
+/** The bar offers only recent copies; older ones stay behind the clipboard button. */
+const CLIP_FRESH = 10 * 60;
 const CLIP_SEEN = "toranj.mobile.clipSeen";
 let lastClip: Clip | null = null;
 const clipSeen = () => { try { return localStorage.getItem(CLIP_SEEN) ?? ""; } catch { return ""; } };
@@ -533,7 +535,7 @@ function clipBar(): [HTMLElement, () => void] {
     const c = await api<Clip>("/api/clipboard").catch(() => null);
     if (!c) return;
     lastClip = c;
-    const fresh = c.text.trim() !== "" && c.id !== clipSeen();
+    const fresh = c.text.trim() !== "" && c.id !== clipSeen() && c.age < CLIP_FRESH;
     if (fresh) preview.textContent = c.text.trim().replace(/\s+/g, " ").slice(0, 140);
     bar.hidden = !fresh;
   };
@@ -776,10 +778,14 @@ function termView(name: string) {
 
   let shown: Item[] = [];
   let known = 0;
+  let drawnFor = "";
   const drawChat = async () => {
     if (chat.hidden || !tab?.session_id || selecting(chat)) return;
+    // Another conversation (/clear, a new session): start the list over.
+    if (tab.session_id !== drawnFor) { drawnFor = tab.session_id; shown = []; known = 0; chat.replaceChildren(); }
+    const sid = tab.session_id;
     const res = await api<{ len: number; items?: Item[] }>(`/api/messages?session=${encodeURIComponent(tab.session_id)}&cwd=${encodeURIComponent(tab.cwd)}&len=${known}`).catch((x) => x as Error);
-    if (gen !== viewGen || selecting(chat)) return;
+    if (gen !== viewGen || selecting(chat) || sid !== drawnFor) return;
     // A new conversation has no transcript yet.
     if (res instanceof Error) {
       if (!shown.length && res instanceof ApiError) chat.replaceChildren(h("div", { class: "chat-empty mute" }, "No messages yet. Write below to start."));

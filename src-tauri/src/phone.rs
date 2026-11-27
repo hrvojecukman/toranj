@@ -15,7 +15,9 @@ use serde::Serialize;
 
 /// How much of a transcript's end is read for the latest messages, tried
 /// in turn until at least MIN_MESSAGES text messages are found.
-const TAILS: [u64; 3] = [4 << 20, 16 << 20, 48 << 20];
+/// (A transcript is re-read whenever it grows, every few seconds while
+/// Claude works, so the most read stays moderate.)
+const TAILS: [u64; 2] = [4 << 20, 16 << 20];
 const MIN_MESSAGES: usize = 20;
 /// Text messages and tool calls together.
 const MAX_ITEMS: usize = 150;
@@ -24,6 +26,8 @@ const TOOL_TEXT: usize = 1500;
 /// A longer clipboard is cut; it's for text, not files.
 const CLIP_MAX: usize = 256 << 10;
 pub const UPLOAD_MAX: usize = 30 << 20;
+/// At most this much is kept in uploads; the oldest go first.
+const UPLOAD_TOTAL: u64 = 500 << 20;
 /// Uploaded files are removed after this long.
 const UPLOAD_KEEP: Duration = Duration::from_secs(3 * 86400);
 
@@ -288,10 +292,35 @@ pub struct Clip {
     pub from: &'static str,
     /// Changes whenever the text does.
     pub id: String,
+    /// Seconds since it was copied; large when not known (copied before
+    /// Toranj started). The phone offers only fresh copies on its own.
+    pub age: u64,
 }
 
-/// When the Mac's clipboard was last seen changing: (hash, unix seconds).
-static MAC_SEEN: Mutex<Option<(u64, u64)>> = Mutex::new(None);
+/// When the Mac's clipboard last changed, unix seconds (0: not since
+/// Toranj started), kept by `watch_clipboard`.
+static MAC_CHANGED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Notes when the Mac's clipboard changes, from its change count (cheap,
+/// no contents read), so a copy's age is known even while no phone looks.
+pub fn watch_clipboard() {
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    STARTED.call_once(|| {
+        std::thread::spawn(|| {
+            // A plain thread has no autorelease pool: give each look its own.
+            let count = || objc2::rc::autoreleasepool(|_| objc2_app_kit::NSPasteboard::generalPasteboard().changeCount());
+            let mut last = count();
+            loop {
+                std::thread::sleep(Duration::from_secs(2));
+                let c = count();
+                if c != last {
+                    last = c;
+                    MAC_CHANGED.store(now(), std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+        });
+    });
+}
 
 fn hash(s: &str) -> u64 {
     use std::hash::{Hash, Hasher};
@@ -338,29 +367,20 @@ fn cut(mut s: String) -> String {
 /// anything copied in Toranj) or, if newer, a tmux copy that never reached
 /// the clipboard (an agent's OSC 52 copy while Toranj's window was closed).
 pub fn clipboard() -> Clip {
+    watch_clipboard();
     let mac = cut(mac_clipboard());
     let h = hash(&mac);
-    let mac_at = {
-        let mut g = MAC_SEEN.lock().unwrap_or_else(|e| e.into_inner());
-        match *g {
-            Some((old, at)) if old == h => at,
-            _ => {
-                // First look counts as now: what's on the clipboard is the
-                // freshest thing we know of.
-                let at = now();
-                *g = Some((h, at));
-                at
-            }
-        }
-    };
+    let mac_at = MAC_CHANGED.load(std::sync::atomic::Ordering::Relaxed);
+    let t = now();
     if let Some((at, text)) = crate::tmux::newest_buffer() {
         if at > mac_at && !text.trim().is_empty() && text != mac {
             let text = cut(text);
             let id = format!("t{:x}", hash(&text));
-            return Clip { text, from: "terminal", id };
+            return Clip { text, from: "terminal", id, age: t.saturating_sub(at) };
         }
     }
-    Clip { text: mac, from: "mac", id: format!("m{h:x}") }
+    let age = if mac_at == 0 { u64::MAX } else { t.saturating_sub(mac_at) };
+    Clip { text: mac, from: "mac", id: format!("m{h:x}"), age }
 }
 
 // ---------- uploads ----------
@@ -405,17 +425,25 @@ pub fn save_upload(name: &str, bytes: &[u8], tag: &str) -> Result<String, String
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// Removes uploads older than UPLOAD_KEEP, then the oldest ones until the
+/// folder holds at most UPLOAD_TOTAL (room for one more upload).
 fn sweep(dir: &Path) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
-    for e in rd.flatten() {
-        let old = e
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| t.elapsed().ok())
-            .is_some_and(|age| age > UPLOAD_KEEP);
-        if old {
-            let _ = std::fs::remove_file(e.path());
+    let mut files: Vec<(SystemTime, u64, PathBuf)> = rd
+        .flatten()
+        .filter_map(|e| {
+            let m = e.metadata().ok()?;
+            Some((m.modified().ok()?, m.len(), e.path()))
+        })
+        .collect();
+    files.sort_by_key(|f| f.0);
+    let mut total: u64 = files.iter().map(|f| f.1).sum();
+    for (at, len, path) in files {
+        let old = at.elapsed().is_ok_and(|a| a > UPLOAD_KEEP);
+        if old || total + UPLOAD_MAX as u64 > UPLOAD_TOTAL {
+            if std::fs::remove_file(&path).is_ok() {
+                total -= len;
+            }
         }
     }
 }
