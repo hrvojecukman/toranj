@@ -100,6 +100,9 @@ const lightQuery = matchMedia("(prefers-color-scheme: light)");
 const isLight = () => settings.theme === "light" || (settings.theme === "system" && lightQuery.matches);
 const termTheme = () => (isLight() ? LIGHT_TERM : DARK_TERM);
 
+/** The invisible terminal under a chat view (see Pane.applyView). */
+const CHAT_TERM_FONT = 8;
+
 const ANSI_NAMES = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const;
 /** CSS for an xterm cell's color and weight (the chat shows terminal lines). */
 function cellStyle(c: { isFgRGB(): boolean; isFgPalette(): boolean; getFgColor(): number; isBold(): number; isDim(): number; isItalic(): number; isInverse(): number }): string {
@@ -345,12 +348,17 @@ class Pane {
       this.chat = this.buildChat();
       this.el.querySelector(".tp-mid")!.append(this.chat);
       this.host.classList.add("under-chat");
+      // Its text is never seen there: a small font gives Claude more columns,
+      // so its lists and status lines aren't wrapped or cut in the chat.
+      this.term.options.fontSize = CHAT_TERM_FONT;
+      requestAnimationFrame(() => this.refit());
     } else {
       this.stopMsgs();
       this.syncChat = () => {};
       this.chat?.remove();
       this.chat = null;
       this.host.classList.remove("under-chat");
+      this.term.options.fontSize = settings.fontSize;
       requestAnimationFrame(() => this.refit());
     }
     this.el.classList.toggle("chat-mode", chat);
@@ -2665,7 +2673,7 @@ function saveSettings() {
 function applySettings() {
   document.documentElement.dataset.theme = isLight() ? "light" : "dark";
   for (const p of panes.values()) {
-    p.term.options.fontSize = settings.fontSize;
+    p.term.options.fontSize = p.el.classList.contains("chat-mode") ? CHAT_TERM_FONT : settings.fontSize;
     p.term.options.theme = termTheme();
     p.refit();
   }
