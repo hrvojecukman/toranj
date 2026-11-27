@@ -428,18 +428,35 @@ class Pane {
     for (let i = r2 + 1; i <= last; i++) {
       const t = text[i].replace(/\s+$/, "");
       if (!t) continue;
-      footer.push({ text: t, el: this.lineEl(rows[i]) });
+      footer.push({ text: t, el: this.lineEl(rows[i], true) });
     }
     return { status, footer, input, inputRows: rows.slice(p, r2), menuRows };
   }
 
-  /** One terminal line as DOM, with its colors. */
-  private lineEl(y: number): HTMLElement {
+  /**
+   * One terminal line as DOM, with its colors. With `split`, a line laid
+   * out in two columns (a wide gap of spaces, e.g. an agent and its time on
+   * the right) becomes a left part that may shorten and a right part.
+   */
+  private lineEl(y: number, split = false): HTMLElement {
     const buf = this.term.buffer.active;
     const el = document.createElement("div");
     el.className = "cf-line";
     const line = buf.getLine(y);
     if (!line) return el;
+    let gap = -1, gapEnd = -1;
+    if (split) {
+      const m = /\S( {4,})(?=\S)/.exec(line.translateToString(true));
+      if (m) { gap = m.index + 1; gapEnd = gap + m[1].length; }
+    }
+    let into: HTMLElement = el;
+    if (gap >= 0) {
+      el.classList.add("split");
+      const left = document.createElement("span");
+      left.className = "cf-l";
+      el.append(left);
+      into = left;
+    }
     const cell = buf.getNullCell();
     let run = "", style = "";
     const flush = () => {
@@ -447,10 +464,19 @@ class Pane {
       const sp = document.createElement("span");
       sp.textContent = run;
       if (style) sp.setAttribute("style", style);
-      el.append(sp);
+      into.append(sp);
       run = "";
     };
     for (let x = 0; x < line.length; x++) {
+      if (x === gap) {
+        flush();
+        const right = document.createElement("span");
+        right.className = "cf-r";
+        el.append(right);
+        into = right;
+        x = gapEnd - 1;
+        continue;
+      }
       line.getCell(x, cell);
       const ch = cell.getChars();
       if (!ch && cell.getWidth() === 0) continue;

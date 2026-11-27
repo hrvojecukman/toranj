@@ -711,3 +711,8 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .chat-menu .cf-line { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
 .chat-menu, .chat-foot { font-size: 11px; }
 .chat-menu .cf-line, .chat-foot .cf-line { white-space: pre-wrap; overflow: visible; text-overflow: clip; word-break: break-word; }
+/* Footer lines: one line each; a two-column line keeps its right part (time, tokens). */
+.chat-foot .cf-line { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.chat-foot .cf-line.split { display: flex; gap: 12px; }
+.chat-foot .cf-l { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.chat-foot .cf-r { flex: none; white-space: pre; }
