@@ -433,7 +433,7 @@ class Pane {
   private buildChat(): HTMLElement {
     const box = document.createElement("div");
     box.className = "tp-chat";
-    box.innerHTML = `<div class="msgs-list"></div><div class="chat-dock"><div class="chat-ask" hidden></div><div class="chat-work" hidden></div><div class="chat-compose"><textarea class="chat-in" rows="1" placeholder="Message Claude — Enter sends, ⇧Enter new line, Esc interrupts"></textarea><button class="btn primary chat-send" type="button">Send</button></div><div class="chat-foot" hidden></div></div>`;
+    box.innerHTML = `<div class="msgs-list"></div><div class="chat-dock"><div class="chat-ask" hidden></div><div class="chat-work" hidden></div><div class="chat-compose"><textarea class="chat-in" rows="1" placeholder="Message Claude — Enter sends, ⇧Enter new line, Esc interrupts; arrows in an empty box go to Claude"></textarea><button class="btn primary chat-send" type="button">Send</button></div><div class="chat-foot" hidden></div></div>`;
     const list = box.querySelector<HTMLElement>(".msgs-list")!;
     const ask = box.querySelector<HTMLElement>(".chat-ask")!;
     const work = box.querySelector<HTMLElement>(".chat-work")!;
@@ -476,7 +476,13 @@ class Pane {
     input.addEventListener("input", grow);
     input.addEventListener("keydown", (e) => {
       if (e.isComposing || e.keyCode === 229) return;
-      if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); void send(); }
+      // With nothing typed, arrows and Enter go to Claude, as in the
+      // terminal: ↓ manages background agents, ← → switch to one, ↑ recalls.
+      const empty = !input.value;
+      const ARROWS: Record<string, string> = { ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", ArrowRight: "\x1b[C", ArrowLeft: "\x1b[D" };
+      if (empty && !e.shiftKey && !e.altKey && !e.metaKey && ARROWS[e.key]) { e.preventDefault(); key(ARROWS[e.key]); setTimeout(drawWork, 150); setTimeout(drawWork, 500); }
+      else if (e.key === "Enter" && empty && !e.shiftKey && !e.altKey) { e.preventDefault(); key("\r"); setTimeout(drawWork, 150); setTimeout(drawWork, 500); }
+      else if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); void send(); }
       else if (e.key === "Escape") { e.preventDefault(); key("\x1b"); } // interrupt, as in the terminal
       else if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); key("\x1b[Z"); } // Claude's mode cycle
     });
