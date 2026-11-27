@@ -468,7 +468,7 @@ class Pane {
    * out in two columns (a wide gap of spaces, e.g. an agent and its time on
    * the right) becomes a left part that may shorten and a right part.
    */
-  private lineEl(y: number, split = false): HTMLElement {
+  private lineEl(y: number, split = false, caret = -1): HTMLElement {
     const buf = this.term.buffer.active;
     const el = document.createElement("div");
     el.className = "cf-line";
@@ -510,11 +510,22 @@ class Pane {
       line.getCell(x, cell);
       const ch = cell.getChars();
       if (!ch && cell.getWidth() === 0) continue;
+      if (x === caret) {
+        // The terminal's cursor (where Claude's input caret is): drawn here.
+        flush();
+        const c = document.createElement("span");
+        c.className = "caret";
+        c.textContent = ch || " ";
+        into.append(c);
+        continue;
+      }
       const st = cellStyle(cell);
       if (st !== style) { flush(); style = st; }
       run += ch || " ";
     }
     flush();
+    // The cursor past the line's last cell.
+    if (caret >= line.length) { const c = document.createElement("span"); c.className = "caret"; c.textContent = " "; into.append(c); }
     return el;
   }
 
@@ -591,12 +602,25 @@ class Pane {
       input.value = "";
       sendInput(v);
     });
+    // A paste goes in as one bracketed paste, as in the terminal; with an
+    // image on the clipboard (no text) it's an empty one, which Claude takes
+    // as "read the image from the clipboard".
+    input.addEventListener("paste", (e) => {
+      e.preventDefault();
+      const t = (e.clipboardData?.getData("text/plain") ?? "").replace(/\r?\n/g, "\r");
+      typed += t.length;
+      key(`\x1b[200~${t}\x1b[201~`);
+    });
     input.addEventListener("compositionend", () => { const v = input.value; input.value = ""; sendInput(v); });
     input.addEventListener("keydown", (e) => {
       if (e.isComposing || e.keyCode === 229) return;
       const agents = /agent|manage|to select/i.test(foot.dataset.key ?? "");
+      // Keys handled here never reach the app's shortcuts (⌘← may be "back").
+      const take = () => { e.preventDefault(); e.stopPropagation(); };
       const edit = macEditKey(e);
-      if (edit !== null) { e.preventDefault(); key(edit); return; }
+      if (edit !== null) { take(); key(edit); return; }
+      // ⌃← ⌃→ (and ⌥⇧) move by word, as most editors do.
+      if (e.ctrlKey && !e.metaKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { take(); key(e.key === "ArrowLeft" ? "\x1bb" : "\x1bf"); return; }
       if (e.key === "Enter") {
         e.preventDefault();
         if (e.shiftKey || e.metaKey || e.altKey) { key("\x1b\r"); return; } // new line
@@ -642,7 +666,8 @@ class Pane {
       const k = rows.map((y) => buf.getLine(y)?.translateToString(false) ?? "").join("\n") + `|${buf.cursorX}|${buf.cursorY}`;
       if (liveLines.dataset.key === k) return;
       liveLines.dataset.key = k;
-      liveLines.replaceChildren(...rows.map((y) => this.lineEl(y)));
+      const caretRow = buf.baseY + buf.cursorY;
+      liveLines.replaceChildren(...rows.map((y) => this.lineEl(y, false, y === caretRow ? buf.cursorX : -1)));
     };
     // Redraw as soon as the terminal changes (typing must feel immediate).
     let queued = false;
