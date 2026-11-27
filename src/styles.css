@@ -689,3 +689,10 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .chat-work kbd { margin-left: auto; }
 .chat-foot { font: 11.5px/1.5 var(--mono); color: var(--mute); max-height: 9.5em; overflow: auto; padding: 0 2px; }
 .chat-foot .cf-line { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+/* A dialog read from the screen (multiple choice, free text), shown as is. */
+.chat-ask:has(.ask-screen) { max-height: min(460px, 60vh); }
+.ask-screen { font: 12px/1.45 var(--mono); margin-bottom: 8px; overflow-x: auto; }
+.ask-screen .cf-line { white-space: pre; min-height: 1.45em; }
+.ask-keys { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.ask-keys .btn { padding: 3px 10px; font-size: 12px; }
+.ask-keys .link { margin-left: auto; font-size: 12px; background: none; border: 0; color: var(--accent); cursor: pointer; }

@@ -370,34 +370,64 @@ class Pane {
     let last = text.length - 1;
     while (last > r2 && !text[last].trim()) last--;
     for (let i = r2 + 1; i <= last; i++) {
-      const line = buf.getLine(rows[i]);
-      if (!line) continue;
-      const el = document.createElement("div");
-      el.className = "cf-line";
-      const cell = buf.getNullCell();
-      let run = "", style = "";
-      const flush = () => {
-        if (!run) return;
-        const sp = document.createElement("span");
-        sp.textContent = run;
-        if (style) sp.setAttribute("style", style);
-        el.append(sp);
-        run = "";
-      };
-      for (let x = 0; x < line.length; x++) {
-        line.getCell(x, cell);
-        const ch = cell.getChars();
-        if (!ch && cell.getWidth() === 0) continue;
-        const st = cellStyle(cell);
-        if (st !== style) { flush(); style = st; }
-        run += ch || " ";
-      }
-      flush();
       const t = text[i].replace(/\s+$/, "");
       if (!t) continue;
-      footer.push({ text: t, el });
+      footer.push({ text: t, el: this.lineEl(rows[i]) });
     }
     return { status, footer };
+  }
+
+  /** One terminal line as DOM, with its colors. */
+  private lineEl(y: number): HTMLElement {
+    const buf = this.term.buffer.active;
+    const el = document.createElement("div");
+    el.className = "cf-line";
+    const line = buf.getLine(y);
+    if (!line) return el;
+    const cell = buf.getNullCell();
+    let run = "", style = "";
+    const flush = () => {
+      if (!run) return;
+      const sp = document.createElement("span");
+      sp.textContent = run;
+      if (style) sp.setAttribute("style", style);
+      el.append(sp);
+      run = "";
+    };
+    for (let x = 0; x < line.length; x++) {
+      line.getCell(x, cell);
+      const ch = cell.getChars();
+      if (!ch && cell.getWidth() === 0) continue;
+      const st = cellStyle(cell);
+      if (st !== style) { flush(); style = st; }
+      run += ch || " ";
+    }
+    flush();
+    return el;
+  }
+
+  /**
+   * A question Claude shows that Toranj can't read as a plain prompt (a
+   * multiple-choice dialog, a free-text question): its lines as on screen,
+   * from the last rule above it, and its numbered options.
+   */
+  screenDialog(): { key: string; lines: HTMLElement[]; options: { n: string; label: string }[] } {
+    const buf = this.term.buffer.active;
+    const rows: number[] = [];
+    for (let i = 0; i < this.term.rows; i++) rows.push(buf.baseY + i);
+    const text = rows.map((y) => buf.getLine(y)?.translateToString(true) ?? "");
+    let last = text.length - 1;
+    while (last > 0 && !text[last].trim()) last--;
+    const rule = (l: string) => { const t = l.trim(); return t.length >= 10 && [...t].filter((c) => c === "─" || c === "━").length >= t.length * 0.6; };
+    let start = Math.max(0, last - 24);
+    for (let i = last - 1; i >= Math.max(0, last - 40); i--) if (rule(text[i])) { start = i + 1; break; }
+    const options: { n: string; label: string }[] = [];
+    for (let i = start; i <= last; i++) {
+      const m = /^\s{0,3}(?:[❯›>]\s*)?(\d{1,2})\.\s+(.+?)\s*$/.exec(text[i]);
+      if (m && !options.some((o) => o.n === m[1])) options.push({ n: m[1], label: m[2] });
+    }
+    const slice = text.slice(start, last + 1);
+    return { key: slice.join("\n"), lines: rows.slice(start, last + 1).map((y) => this.lineEl(y)), options };
   }
 
   private buildChat(): HTMLElement {
@@ -549,11 +579,51 @@ class Pane {
 
     // A question Claude asks, answered here; and what it's doing meanwhile.
     let askKey = "";
+    /** A dialog read from the screen is up (null: none); its last drawn text. */
+    let dialogKey: string | null = null;
+    const press = (data: string) => { if (this.attachId !== null) invoke("write", { id: this.attachId, data }); setTimeout(drawDialog, 150); setTimeout(drawDialog, 500); };
+    const drawDialog = () => {
+      if (dialogKey === null || !live()) return;
+      const d = this.screenDialog();
+      if (d.key === dialogKey) return;
+      dialogKey = d.key;
+      const screen = document.createElement("div");
+      screen.className = "ask-screen";
+      screen.append(...d.lines);
+      const opts = document.createElement("div");
+      opts.className = "chat-choices";
+      for (const o of d.options) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn chat-choice";
+        b.textContent = `${o.n}. ${o.label}`;
+        b.onclick = () => press(o.n);
+        opts.append(b);
+      }
+      const keys = document.createElement("div");
+      keys.className = "ask-keys";
+      for (const [label, data, title] of [["↑", "\x1b[A", "Up"], ["↓", "\x1b[B", "Down"], ["⏎ Enter", "\r", "Choose the highlighted option"], ["Esc", "\x1b", "Cancel"]] as const) {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "btn";
+        b.textContent = label;
+        b.title = title;
+        b.onclick = () => press(data);
+        keys.append(b);
+      }
+      const term = document.createElement("button");
+      term.type = "button";
+      term.className = "link";
+      term.textContent = "Show terminal";
+      term.onclick = () => this.toggleView();
+      keys.append(term);
+      ask.replaceChildren(screen, ...(d.options.length ? [opts] : []), keys);
+    };
     const drawState = async () => {
       const t = this.tab;
       if (!t) return;
       drawWork();
-      if (t.state !== "waiting") { ask.hidden = true; askKey = ""; return; }
+      if (t.state !== "waiting") { ask.hidden = true; askKey = ""; dialogKey = null; return; }
       const k = `${t.since}:${t.detail}`;
       if (k === askKey) return;
       askKey = k;
@@ -561,10 +631,11 @@ class Pane {
       if (!box.isConnected || askKey !== k) return;
       if (!p?.prompt) {
         ask.hidden = false;
-        ask.innerHTML = `<p>${escapeHtml(t.detail || "Claude is waiting for you.")}</p><button class="btn" type="button">Show terminal</button>`;
-        ask.querySelector("button")!.onclick = () => this.toggleView();
+        dialogKey = "";
+        drawDialog();
         return;
       }
+      dialogKey = null;
       const pr = p.prompt;
       const atEnd = stick;
       requestAnimationFrame(() => { if (atEnd) { stick = true; list.scrollTop = list.scrollHeight; } });
@@ -586,7 +657,7 @@ class Pane {
     void drawState();
     const timer = window.setInterval(() => void draw(), 2000);
     // The terminal's bottom lines change by the second (timers, token counts).
-    const ticker = window.setInterval(() => { if (!document.hidden) drawWork(); }, 1000);
+    const ticker = window.setInterval(() => { if (!document.hidden) { drawWork(); drawDialog(); } }, 1000);
     this.stopMsgs = () => { clearInterval(timer); clearInterval(ticker); ro.disconnect(); };
     return box;
   }
