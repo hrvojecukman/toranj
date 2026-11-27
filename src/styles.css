@@ -604,6 +604,8 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .tp-chat .msgs-list { padding: 14px max(14px, calc((100% - 860px) / 2)); gap: 12px; }
 .tp-chat .dmsg { font-size: 13.5px; padding: 8px 12px 12px; }
 .tp-chat .dmsg.user { align-self: flex-end; max-width: 85%; }
+.dmsg.queued { opacity: .7; border: 1px dashed var(--accent); }
+.queued-tag { margin-left: 8px; padding: 0 6px; border-radius: 6px; font-size: 10px; font-weight: 600; letter-spacing: .02em; color: var(--accent); border: 1px solid currentColor; }
 .chat-dock { flex: none; border-top: 1px solid var(--line); padding: 8px max(12px, calc((100% - 860px) / 2)) 10px; display: grid; gap: 8px; }
 .chat-dock > [hidden] { display: none; }
 .chat-work { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--mute); min-width: 0; }

@@ -57,6 +57,9 @@ pub struct Message {
     pub detail: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
+    /// A message sent while Claude was busy, waiting in Claude Code's queue.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub queued: bool,
 }
 
 #[derive(Serialize)]
@@ -119,6 +122,13 @@ enum Item {
     Msg(Message),
     /// A tool's output, for the call with this id.
     Result(String, String),
+    /// Claude Code's queue of messages sent while it was busy: one added
+    /// (text, time), the oldest taken, or one taken by its text.
+    Enqueue(String, String),
+    /// A queued message given to Claude mid-turn.
+    Absorbed(Message),
+    Dequeue,
+    Remove(String),
 }
 
 /// The items in the last `tail` bytes, and whether that was the whole file.
@@ -137,11 +147,15 @@ fn tail_items(path: &Path, tail: u64) -> Result<(Vec<Message>, bool), String> {
     };
     let mut out: Vec<Message> = Vec::new();
     let mut calls: HashMap<String, usize> = HashMap::new();
+    let mut queue: Vec<(String, String)> = Vec::new();
     for item in body.split(|&b| b == b'\n').flat_map(parse_line) {
         match item {
             Item::Msg(m) => {
                 if m.role == "tool" {
                     calls.insert(m.id.clone(), out.len());
+                } else if m.role == "user" {
+                    // A prompt is sent only once the queue is empty.
+                    queue.clear();
                 }
                 out.push(m);
             }
@@ -150,6 +164,26 @@ fn tail_items(path: &Path, tail: u64) -> Result<(Vec<Message>, bool), String> {
                     out[i].result = Some(text);
                 }
             }
+            Item::Enqueue(text, at) => queue.push((text, at)),
+            Item::Absorbed(m) => {
+                queue.retain(|(t, _)| t.trim() != m.text);
+                out.push(m);
+            }
+            Item::Dequeue => {
+                if !queue.is_empty() {
+                    queue.remove(0);
+                }
+            }
+            Item::Remove(text) => {
+                if let Some(i) = queue.iter().position(|(t, _)| *t == text) {
+                    queue.remove(i);
+                }
+            }
+        }
+    }
+    for (n, (text, at)) in queue.into_iter().enumerate() {
+        if is_prompt(text.trim()) && !text.trim().is_empty() {
+            out.push(Message { id: format!("queued:{n}:{at}"), role: "user", text: text.trim().to_string(), at, tool: String::new(), detail: String::new(), result: None, queued: true });
         }
     }
     Ok((out, start == 0))
@@ -226,19 +260,39 @@ fn result_text(content: Option<&serde_json::Value>) -> String {
 
 fn parse_line(line: &[u8]) -> Vec<Item> {
     let Ok(v) = serde_json::from_slice::<serde_json::Value>(line) else { return vec![] };
+    let flag = |k: &str| v.get(k).and_then(|x| x.as_bool()) == Some(true);
+    let at = v.get("timestamp").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let uuid = v.get("uuid").and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let str_of = |x: &serde_json::Value, k: &str| x.get(k).and_then(|t| t.as_str()).unwrap_or("").to_string();
     let role = match v.get("type").and_then(|t| t.as_str()) {
         Some("user") => "user",
         Some("assistant") => "assistant",
+        Some("queue-operation") => {
+            return match str_of(&v, "operation").as_str() {
+                "enqueue" => vec![Item::Enqueue(str_of(&v, "content"), at)],
+                "dequeue" => vec![Item::Dequeue],
+                "remove" => vec![Item::Remove(str_of(&v, "content"))],
+                _ => vec![],
+            };
+        }
+        // A message sent while Claude was working, given to it mid-turn.
+        Some("attachment") if !flag("isSidechain") => {
+            let Some(a) = v.get("attachment") else { return vec![] };
+            let text = str_of(a, "prompt");
+            let text = text.trim();
+            let human = a.get("origin").and_then(|o| o.get("kind")).and_then(|k| k.as_str()).is_none_or(|k| k == "human");
+            if str_of(a, "type") != "queued_command" || str_of(a, "commandMode") != "prompt" || !human || text.is_empty() || !is_prompt(text) {
+                return vec![];
+            }
+            return vec![Item::Absorbed(Message { id: uuid, role: "user", text: text.to_string(), at, tool: String::new(), detail: String::new(), result: None, queued: false })];
+        }
         _ => return vec![],
     };
-    let flag = |k: &str| v.get(k).and_then(|x| x.as_bool()) == Some(true);
     if flag("isSidechain") {
         return vec![];
     }
-    let at = v.get("timestamp").and_then(|x| x.as_str()).unwrap_or("").to_string();
-    let uuid = v.get("uuid").and_then(|x| x.as_str()).unwrap_or("").to_string();
     let Some(content) = v.get("message").and_then(|m| m.get("content")) else { return vec![] };
-    let msg = |role: &'static str, id: String, text: String| Message { id, role, text, at: at.clone(), tool: String::new(), detail: String::new(), result: None };
+    let msg = |role: &'static str, id: String, text: String| Message { id, role, text, at: at.clone(), tool: String::new(), detail: String::new(), result: None, queued: false };
     let mut out = Vec::new();
     let mut texts = Vec::new();
     match content {
@@ -512,5 +566,34 @@ mod tests {
         assert!(matches!(parse_line(res).as_slice(), [Item::Result(id, t)] if id == "t1" && t == "ok"));
         assert_eq!(tool_name("mcp__claude_ai_Slack__slack_read_thread"), "Slack: slack_read_thread");
     }
-}
 
+    #[test]
+    fn messages_sent_while_busy_show() {
+        let dir = std::env::temp_dir().join(format!("toranj-queue-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.jsonl");
+        let lines = [
+            r#"{"type":"user","message":{"role":"user","content":"start"},"uuid":"u1","timestamp":"t0"}"#,
+            r#"{"type":"queue-operation","operation":"enqueue","timestamp":"t1","content":"cek, a staging?"}"#,
+            r#"{"type":"queue-operation","operation":"enqueue","timestamp":"t2","content":"<task-notification>x</task-notification>"}"#,
+            r#"{"type":"queue-operation","operation":"enqueue","timestamp":"t3","content":"i jos nesto"}"#,
+        ];
+        let run = |l: &[&str]| {
+            std::fs::write(&path, l.join("\n")).unwrap();
+            tail_items(&path, 1 << 20).unwrap().0.into_iter().map(|m| (m.text, m.queued)).collect::<Vec<_>>()
+        };
+        let s = |t: &str, q: bool| (t.to_string(), q);
+        assert_eq!(run(&lines), [s("start", false), s("cek, a staging?", true), s("i jos nesto", true)]);
+        // Absorbed mid-turn: an attachment, no longer queued.
+        let mut l = lines.to_vec();
+        l.push(r#"{"type":"queue-operation","operation":"remove","timestamp":"t4","content":"cek, a staging?","reason":"absorbed_mid_turn"}"#);
+        l.push(r#"{"type":"attachment","attachment":{"type":"queued_command","prompt":"cek, a staging?","commandMode":"prompt","origin":{"kind":"human"}},"uuid":"a1","timestamp":"t4"}"#);
+        assert_eq!(run(&l), [s("start", false), s("cek, a staging?", false), s("i jos nesto", true)]);
+        // The turn ended: the rest is sent as a prompt.
+        l.push(r#"{"type":"queue-operation","operation":"dequeue","timestamp":"t5"}"#);
+        l.push(r#"{"type":"queue-operation","operation":"dequeue","timestamp":"t5"}"#);
+        l.push(r#"{"type":"user","message":{"role":"user","content":"i jos nesto"},"uuid":"u2","timestamp":"t5"}"#);
+        assert_eq!(run(&l), [s("start", false), s("cek, a staging?", false), s("i jos nesto", false)]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

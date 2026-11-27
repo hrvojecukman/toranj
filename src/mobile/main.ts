@@ -587,9 +587,10 @@ async function upload(file: File): Promise<{ path: string; thumb: string; name: 
 function msgEl(m: Item): HTMLElement {
   if (m.role === "tool") return renderTool(m, copyText);
   const time = m.at ? new Date(m.at) : null;
-  return h("div", { class: `citem msg ${m.role}`, "data-id": m.id },
+  return h("div", { class: `citem msg ${m.role}${m.queued ? " queued" : ""}`, "data-id": m.id },
     renderMessage(m.text, copyText),
     h("div", { class: "mfoot" },
+      m.queued ? h("small", { class: "queued-tag" }, "Queued") : null,
       time && !isNaN(+time) ? h("small", {}, time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) : null,
       h("button", { class: "copy-msg", type: "button", onclick: () => copyText(m.text) }, icon("copy"), " Copy")));
 }

@@ -609,9 +609,10 @@ class Pane {
       const head = document.createElement("div");
       head.className = "dmsg-head";
       head.textContent = (m.role === "user" ? "You" : "Claude") + (isNaN(+at) ? "" : ` · ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+      if (m.queued) head.append(Object.assign(document.createElement("span"), { className: "queued-tag", textContent: "Queued", title: "Sent while Claude was busy; Claude reads it at its next step" }));
       head.append(copyButton(() => m.text, copy, "Message", "copy-msg"));
       const item = document.createElement("div");
-      item.className = `citem dmsg ${m.role}`;
+      item.className = `citem dmsg ${m.role}${m.queued ? " queued" : ""}`;
       item.dataset.id = m.id;
       item.append(head, renderMessage(m.text, copy, true));
       return item;

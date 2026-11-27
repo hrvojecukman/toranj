@@ -113,9 +113,11 @@ export interface Item {
   detail?: string;
   /** A tool's output; absent while it runs. */
   result?: string;
+  /** Sent while Claude was busy; waiting in Claude Code's queue. */
+  queued?: boolean;
 }
 
-const sig = (m: Item) => `${m.id}|${m.text}|${m.result === undefined ? "…" : m.result.length}`;
+const sig = (m: Item) => `${m.id}|${m.text}|${m.queued ? "q" : ""}|${m.result === undefined ? "…" : m.result.length}`;
 
 /** Elapsed time since an ISO timestamp, short: "45 s", "3 min 52 s". */
 export function since(iso: string): string {
