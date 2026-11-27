@@ -104,7 +104,12 @@ kbd { font: 11px var(--mono); color: var(--mute); }
 .tp { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--term); position: relative; }
 .tp-host { flex: 1; min-height: 0; padding: 8px 4px 4px 10px; }
 .tp-bar { display: none; align-items: center; gap: 7px; padding: 4px 10px; font-size: 11.5px; color: var(--mute); background: var(--bg); border-bottom: 1px solid var(--line); cursor: grab; }
-.tp-bar .tp-n { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-bar .tp-n { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tp-bar .pi { width: 18px; height: 18px; }
+.tp-bar .tp-p { font-size: 13px; font-weight: 650; flex: none; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-bar .tp-p + .tp-n::before { content: "·"; color: var(--mute); margin-right: 7px; }
+.grid.multi .tp-bar { padding-block: 5px; font-size: 12px; }
+.head.multi #h-st, .head.multi #h-ico, .head.multi #h-name, .head.multi #h-meta { display: none; }
 .tp-bar .tp-t { margin-left: auto; font-variant-numeric: tabular-nums; }
 .grid.multi .tp-bar { display: flex; }
 .tp-x { border: 0; background: none; color: var(--mute); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; margin-left: 4px; border-radius: 4px; }

@@ -147,7 +147,7 @@ class Pane {
   constructor(readonly name: string, parent: HTMLElement) {
     this.el.className = "tp";
     this.el.dataset.name = name;
-    this.el.innerHTML = `<div class="tp-bar" title="Drag to rearrange"><i class="st"></i><span class="tp-n"></span><span class="tp-t"></span><button class="tp-x" title="Close this terminal" aria-label="Close this terminal">×</button></div>`;
+    this.el.innerHTML = `<div class="tp-bar" title="Drag to rearrange"><i class="st"></i><i class="pi" aria-hidden="true"></i><b class="tp-p"></b><span class="tp-n"></span><span class="tp-t"></span><button class="tp-x" title="Close this terminal" aria-label="Close this terminal">×</button></div>`;
     this.host.className = "tp-host";
     const foot = document.createElement("div");
     foot.className = "tp-foot";
@@ -327,6 +327,9 @@ function layoutPanes() {
     c: rowNames.map((row, i) => (Array.isArray(saved?.c) && ok(saved!.c[i], row.length) ? [...saved!.c[i]] : row.map(() => 1))),
   };
   grid.classList.toggle("multi", names.length > 1);
+  // Side by side, each pane names its own project: the header naming only
+  // the focused one read as if it were the top-left pane.
+  $("head").classList.toggle("multi", names.length > 1);
 
   const fresh: Pane[] = [];
   for (const name of names) {
@@ -448,6 +451,9 @@ function paintPanes() {
     setText(p.el, ".tp-n", (t.title || t.agent) + (num ? `  ⌃${num}` : ""));
     setText(p.el, ".tp-t", st === "running" ? ago(t.since) : LABEL[st]);
     const proj = groupKey(t);
+    paintIcon(p.el.querySelector(".tp-bar .pi") as HTMLElement, proj);
+    setText(p.el, ".tp-p", fullLabel(proj));
+    (p.el.querySelector(".tp-p") as HTMLElement).style.color = projectColor(proj);
     paintIcon(p.el.querySelector(".tp-foot .pi") as HTMLElement, proj);
     setText(p.el, ".tp-foot b", fullLabel(proj));
     setText(p.el, ".tp-foot span", t.title ? `· ${t.title}` : "");

@@ -27,6 +27,7 @@ All notable changes to Toranj. The format follows [Keep a Changelog](https://kee
 - Selecting text shows a short "Copied" in the pane, since a mouse selection goes straight to the clipboard.
 
 ### Changed
+- Side by side, each terminal's header shows its project's icon and name; the window header no longer names the focused project, which read as if it were the top-left terminal.
 - Phone: a redesigned terminal screen: a compact header, a round Send button, Enter adds a new line (Send sends), a menu for less-used actions, and larger touch targets throughout.
 - New terminal lists workspaces (VS Code workspaces and whole folders) and projects in two labelled sections, with each workspace's folders on one line.
 

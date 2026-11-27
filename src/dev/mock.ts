@@ -108,6 +108,11 @@ export async function installMock() {
     g.dispatchEvent(new PointerEvent("pointermove", { clientX: r.left + r.width * 0.7, clientY: r.top + 50, pointerId: 1 }));
     g.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1 }));
   }, 2600);
+  // ?pgrid: a project's terminals side by side (pane headers).
+  if (params.has("pgrid")) setTimeout(() => {
+    document.querySelectorAll<HTMLElement>("#tabs .sess")[1]?.click();
+    setTimeout(() => document.querySelector<HTMLButtonElement>('#layout [data-layout="grid"]')?.click(), 300);
+  }, 1400);
   if (params.has("wsgrid")) setTimeout(() => document.querySelector<HTMLButtonElement>("#tabs .wgrid")?.click(), 1400);
   // ?pdrag: hold the 2nd project over the 3rd (screenshot of the "Group" state).
   if (params.has("pdrag")) setTimeout(() => {
