@@ -696,3 +696,4 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .ask-keys { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
 .ask-keys .btn { padding: 3px 10px; font-size: 12px; }
 .ask-keys .link { margin-left: auto; font-size: 12px; background: none; border: 0; color: var(--accent); cursor: pointer; }
+.chat-in.suggest::placeholder { color: var(--fg); opacity: .45; font-style: italic; }

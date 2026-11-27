@@ -346,7 +346,7 @@ class Pane {
    * still running) terminal: the status line above the box and the lines
    * below it (mode, background tasks, agents), with their colors.
    */
-  screenEdges(): { status: string; footer: { text: string; el: HTMLElement }[] } {
+  screenEdges(): { status: string; footer: { text: string; el: HTMLElement }[]; input: string } {
     const buf = this.term.buffer.active;
     const rows: number[] = [];
     for (let i = 0; i < this.term.rows; i++) rows.push(buf.baseY + i);
@@ -357,7 +357,9 @@ class Pane {
       if (!rule(text[i])) continue;
       if (r2 < 0) r2 = i; else if (r2 - i <= 12) { r1 = i; break; } else break;
     }
-    if (r1 < 0) return { status: "", footer: [] };
+    if (r1 < 0) return { status: "", footer: [], input: "" };
+    // Claude's input box: what's in it (a suggested prompt shows there, dimmed).
+    const input = text.slice(r1 + 1, r2).map((l, i) => (i === 0 ? l.replace(/^\s*[>❯›]\s?/, "") : l.replace(/^\s{0,2}/, ""))).join("\n").trim();
     let status = "";
     for (let i = r1 - 1; i >= Math.max(0, r1 - 3); i--) {
       const l = text[i].trim();
@@ -374,7 +376,7 @@ class Pane {
       if (!t) continue;
       footer.push({ text: t, el: this.lineEl(rows[i]) });
     }
-    return { status, footer };
+    return { status, footer, input };
   }
 
   /** One terminal line as DOM, with its colors. */
@@ -472,6 +474,8 @@ class Pane {
       sending = false;
       sendBtn.disabled = false;
     };
+    const PLACEHOLDER = input.placeholder;
+    let suggestion = "";
     const key = (data: string) => { if (this.attachId !== null) invoke("write", { id: this.attachId, data }); };
     input.addEventListener("input", grow);
     input.addEventListener("keydown", (e) => {
@@ -485,6 +489,7 @@ class Pane {
       else if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); void send(); }
       else if (e.key === "Escape") { e.preventDefault(); key("\x1b"); } // interrupt, as in the terminal
       else if (e.key === "Tab" && e.shiftKey) { e.preventDefault(); key("\x1b[Z"); } // Claude's mode cycle
+      else if (e.key === "Tab" && empty && suggestion) { e.preventDefault(); input.value = suggestion; grow(); }
     });
     sendBtn.addEventListener("click", () => void send());
 
@@ -544,7 +549,13 @@ class Pane {
       if (!live()) return;
       const t = this.tab;
       // While a question is up, the screen around it isn't the input box.
-      const { status, footer } = t?.state === "waiting" ? { status: "", footer: [] } : this.screenEdges();
+      const { status, footer, input: suggested } = t?.state === "waiting" ? { status: "", footer: [], input: "" } : this.screenEdges();
+      // Claude's suggested next prompt: shown in the empty box, Tab takes it.
+      if (suggestion !== suggested) {
+        suggestion = suggested;
+        input.placeholder = suggestion ? `${suggestion.split("\n")[0]}   (Tab to use)` : PLACEHOLDER;
+        input.classList.toggle("suggest", !!suggestion);
+      }
       // The terminal's own status line ("✻ Catapulting… (4m 30s · 639 tokens)",
       // "Waiting for 1 background agent") says best what goes on; the
       // running tool call from the transcript says what exactly.
