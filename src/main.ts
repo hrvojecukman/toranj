@@ -381,15 +381,25 @@ class Pane {
     let r2 = -1;
     for (let i = text.length - 1; i >= 0; i--) if (rule(text[i])) { r2 = i; break; }
     if (r2 < 0) return none;
-    // The input starts at the last prompt line above it.
+    // The input starts at the last prompt line above it (❯, or ! in shell mode).
+    const PROMPT = /^\s*[>❯!]\s?/;
     let p = -1;
-    for (let i = r2 - 1; i >= Math.max(0, r2 - 12); i--) {
-      if (rule(text[i])) break;
-      if (/^\s*[>❯]\s?/.test(text[i])) { p = i; break; }
+    if (PROMPT.test(text[r2 + 1] ?? "")) {
+      // Only a top rule (shell mode draws none below): the box runs from it
+      // to the first blank line; what follows is the footer.
+      p = r2 + 1;
+      let end = p + 1;
+      while (end < text.length && text[end].trim() && !rule(text[end])) end++;
+      r2 = end;
+    } else {
+      for (let i = r2 - 1; i >= Math.max(0, r2 - 12); i--) {
+        if (rule(text[i])) break;
+        if (PROMPT.test(text[i])) { p = i; break; }
+      }
     }
     if (p < 0) return none;
     // Claude's input box: what's in it (a suggested prompt shows there, dimmed).
-    const input = text.slice(p, r2).map((l, i) => (i === 0 ? l.replace(/^\s*[>❯›]\s?/, "") : l.replace(/^\s{0,2}/, ""))).join("\n").trim();
+    const input = text.slice(p, r2).map((l, i) => (i === 0 ? l.replace(/^\s*[>❯›!]\s?/, "") : l.replace(/^\s{0,2}/, ""))).join("\n").trim();
     // While Claude offers completions (slash commands, @ files) they list
     // right above the box's top rule, the chosen one marked ❯ (indented).
     let r1 = p - 1;
