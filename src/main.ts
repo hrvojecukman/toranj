@@ -1776,6 +1776,9 @@ function render() {
           const showing = !ovUp && !!curTab && wsNow.get(groupKey(curTab))?.id === ws.id && prefsFor(`ws:${ws.id}`).layout !== "single";
           h.className = "proj ws" + (shut ? " shut" : "") + (showing ? " on" : "") + dragClass(`w:${ws.id}`);
           h.dataset.ws = ws.id;
+          // Collapsed sidebar: a short label ("Group 1" → "G1", "Clients" → "CLI").
+          const words = ws.label.trim().split(/\s+/);
+          h.dataset.short = (words.length > 1 ? words.map((w) => /^\d+$/.test(w) ? w : w[0]).join("") : ws.label.slice(0, 3)).slice(0, 4).toUpperCase();
           // The first click of a double-click toggled it: undo that, then rename.
           h.title = `${ws.label}: ${projs.map(leafLabel).join(", ")}\nClick to see all its terminals together · drag to reorder · right-click to rename`;
           setText(h, ".pn", ws.label);

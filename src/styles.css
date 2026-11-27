@@ -656,8 +656,7 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .app.slim .ovrow .ov-ico { width: auto; font-size: 18px; }
 .app.slim .proj { justify-content: center; padding: 5px 0; }
 .app.slim .proj .pn, .app.slim .proj .branch, .app.slim .proj .padd, .app.slim .proj .wsum, .app.slim .proj .wgrid { display: none; }
-.app.slim .proj.ws { padding: 8px 0 2px; border-top: 1px solid var(--line); margin: 6px 10px 0; }
-.app.slim .proj.ws:first-child { border-top: 0; margin-top: 0; }
+
 .app.slim .proj:not(.ws):not(.recent-head) { cursor: pointer; }
 .app.slim .proj .pi { width: 34px; height: 34px; border-radius: 8px; font-size: 15px; position: relative; overflow: visible; outline: 2px solid transparent; outline-offset: 2px; transition: outline-color .12s, transform .12s; }
 .app.slim .proj .pi img { border-radius: 8px; }
@@ -673,4 +672,11 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .app.slim .newbtn::before { content: "+"; font-size: 18px; line-height: 1; }
 .app.slim .newbtn kbd { display: none; }
 .app.slim .proj kbd, .app.slim .proj .k, .app.slim .proj .wchev { display: none; }
-.app.slim .proj.ws { min-height: 1px; padding: 0; }
+/* Collapsed: each group is a tinted box with a short label on top. */
+.app.slim #tabs > .wsbox { margin-inline: 7px; width: calc(100% - 14px); background: color-mix(in srgb, var(--accent) 18%, var(--rail)); }
+.app.slim #tabs > .wsbox-top { margin-top: 10px; }
+.app.slim #tabs > .wsbox-end { margin-bottom: 8px; padding-bottom: 7px; }
+.app.slim #tabs > .proj.ws { padding: 5px 0 3px; justify-content: center; cursor: pointer; }
+.app.slim .proj.ws::before { content: attr(data-short); font: 700 9.5px/1 var(--sans); letter-spacing: .04em; color: var(--accent); }
+.app.slim .proj.ws.shut::after { content: "▸"; font-size: 9px; color: var(--mute); margin-left: 3px; }
+.app.slim .proj.ws.on { box-shadow: inset 0 0 0 1.5px var(--accent); }
