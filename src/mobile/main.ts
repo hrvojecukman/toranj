@@ -3,6 +3,7 @@
 // questions, shows a terminal and types into it, opens new terminals and
 // receives push notifications.
 import { renderAnsi } from "./ansi";
+import { screenEdges, screenDialog } from "../screen";
 import { renderMessage, renderTool, runningTool, since, syncItems, type Item } from "../msgfmt";
 
 type State = "running" | "waiting" | "idle" | "done" | "error";
@@ -608,6 +609,10 @@ function termView(name: string) {
   const chat = h("div", { class: "chat" });
   const working = h("div", { class: "working", hidden: true });
   const promptBox = h("div", { class: "prompt", hidden: true });
+  /** Under the message box: what Claude Code shows under its own input (mode, tasks, agents). */
+  const cfoot = h("div", { class: "cfoot", hidden: true });
+  /** Claude's own input box holds text (its suggested prompt): tap to take it. */
+  const suggest = h("button", { class: "suggest", type: "button", hidden: true });
   const attBox = h("div", { class: "atts", hidden: true });
   const input = h("textarea", { rows: "1", placeholder: "Message", enterkeyhint: "send", autocapitalize: "sentences" });
   const sendBtn = h("button", { class: "send-btn", type: "button", "aria-label": "Send", disabled: true, onclick: () => void send() }, icon("send"));
@@ -669,7 +674,7 @@ function termView(name: string) {
     refreshSend();
   };
   const autoGrow = () => { input.style.height = "auto"; input.style.height = `${Math.min(140, input.scrollHeight)}px`; };
-  input.addEventListener("input", () => { autoGrow(); refreshSend(); });
+  input.addEventListener("input", () => { autoGrow(); refreshSend(); if (input.value) suggest.hidden = true; });
   // Enter adds a line on a phone keyboard; Send sends. A hardware keyboard's
   // Enter (no on-screen keyboard to tap Send on) sends.
   input.addEventListener("keydown", (e) => {
@@ -728,9 +733,11 @@ function termView(name: string) {
       promptBox,
       h("div", { class: "keys" }, key("Escape", "esc", "Escape"), key("BTab", "⇧⇥", "Shift-Tab: change mode"), key("Up", "↑", "Up"), key("Down", "↓", "Down"), key("Enter", "⏎", "Enter"), key("C-c", "⌃C", "Control-C")),
       attBox,
+      suggest,
       h("div", { class: "send" },
         h("button", { class: "icon-btn attach", type: "button", "aria-label": "Attach files or photos", onclick: () => fileIn.click() }, icon("clip")),
         input, sendBtn, fileIn),
+      cfoot,
     ),
   ));
 
@@ -760,21 +767,70 @@ function termView(name: string) {
   };
 
   let lastText = "";
+  let lastEdges = "";
   const drawScreen = async (force = false) => {
-    if (!force && (screen.hidden || selecting(screen))) return;
+    const chatOn = !chat.hidden;
+    if (!force && ((screen.hidden && !chatOn) || (!screen.hidden && selecting(screen)))) return;
     try {
       const { text } = await api<{ text: string; cols: number }>(`/api/screen?name=${encodeURIComponent(name)}`);
-      if (gen !== viewGen || (!force && selecting(screen))) return;
+      if (gen !== viewGen) return;
       const trimmed = text.replace(/\s+$/, "");
-      if (trimmed !== lastText) {
+      if (!screen.hidden && (force || !selecting(screen)) && trimmed !== lastText) {
         lastText = trimmed;
         renderAnsi(trimmed, screen);
         if (stick) screen.scrollTop = screen.scrollHeight;
       }
+      if (!chat.hidden && trimmed !== lastEdges) { lastEdges = trimmed; drawEdges(trimmed); }
     } catch (x) {
       if (gen === viewGen && x instanceof ApiError && x.status === 404) { toast("This terminal was closed."); go(""); }
     }
   };
+
+  // ---- Claude Code's screen around its input, in the chat ----
+  let status = "";
+  /** A question up that isn't a plain prompt: shown from the screen. */
+  let dialogUp = false;
+  const ESC_RE = /\x1b\[[0-9;:?<>=]*[ -\/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()*+]./g;
+  const lineEl = (ansi: string, plain: string, split = false) => {
+    const d = h("div", { class: "cf-line" });
+    const m = split ? /\S( {4,})(?=\S)/.exec(plain) : null;
+    if (m) {
+      // Two columns (an agent, and its time on the right): one line, the left part shortens.
+      d.classList.add("split");
+      d.append(h("span", { class: "cf-l" }, plain.slice(0, m.index + 1)), h("span", { class: "cf-r" }, plain.slice(m.index + 1 + m[1].length).trimEnd()));
+    } else renderAnsi(ansi, d);
+    return d;
+  };
+  const TMUX_KEY: Record<string, string> = { "\x1b[D": "Left", "\x1b[C": "Right", "\x1b[A": "Up", "\x1b[B": "Down", "\r": "Enter", "\x1b": "Escape", "\t": "Tab", "\x1b[Z": "BTab", " ": "Space", "\x03": "C-c" };
+  const press = async (k: string) => {
+    try { await api("/api/send", { name, key: k }); } catch (x) { toast(x instanceof Error ? x.message : String(x), true); }
+    setTimeout(() => void drawScreen(true), 300);
+  };
+  const drawEdges = (text: string) => {
+    const ansi = text.split("\n");
+    const plain = ansi.map((l) => l.replace(ESC_RE, ""));
+    if (dialogUp) {
+      const d = screenDialog(plain);
+      promptBox.replaceChildren(
+        h("div", { class: "ask-screen" }, ...ansi.slice(...d.lines).map((l, i) => lineEl(l, plain[d.lines[0] + i]))),
+        h("div", { class: "choices" }, ...d.options.map((o) => h("button", { class: "btn choice", type: "button", onclick: () => void press(o.n) }, `${o.n}. ${o.label}`))),
+        h("div", { class: "ask-keys" }, ...d.keys.filter(([, data]) => TMUX_KEY[data] || /^[a-z0-9]$/i.test(data)).map(([label, data, title]) =>
+          h("button", { class: "btn small", type: "button", onclick: () => void press(TMUX_KEY[data] ?? data) }, h("kbd", {}, label), ` ${title}`))),
+      );
+      promptBox.hidden = false;
+    }
+    const e = dialogUp ? null : screenEdges(plain);
+    status = e?.status ?? "";
+    // Claude's input box: its suggested prompt (or text typed there on the Mac).
+    const sug = e?.input ?? "";
+    suggest.hidden = !sug || !!input.value;
+    if (sug) { suggest.replaceChildren(h("small", {}, "Suggested"), h("span", {}, sug.split("\n")[0])); suggest.dataset.text = sug; }
+    const foot = e?.footLines ?? [];
+    cfoot.hidden = !foot.length;
+    cfoot.replaceChildren(...foot.map((i) => lineEl(ansi[i], plain[i], true)));
+    drawWork();
+  };
+  suggest.addEventListener("click", () => { input.value = suggest.dataset.text ?? ""; suggest.hidden = true; autoGrow(); refreshSend(); input.focus(); });
 
   let shown: Item[] = [];
   let known = 0;
@@ -806,12 +862,14 @@ function termView(name: string) {
   };
   /** While Claude works: the tool call running now, and for how long; a tap opens it. */
   const drawWork = () => {
-    working.hidden = !(canChat && mode === "chat" && tab?.state === "running");
+    const busy = tab?.state === "running";
+    working.hidden = !(canChat && mode === "chat" && (busy || !!status));
     if (working.hidden) return;
-    const run = runningTool(shown);
+    const run = busy ? runningTool(shown) : undefined;
     working.dataset.id = run?.id ?? "";
-    working.replaceChildren(h("i", { class: "st running" }),
-      h("span", {}, run ? `${run.tool}: ${run.text}` : tab?.detail || "Thinking…"),
+    // Claude's own status line ("Catapulting… 4m 30s"), and the tool call running now.
+    working.replaceChildren(h("i", { class: `st ${busy ? "running" : "idle"}` }),
+      h("span", { class: busy ? "busy" : "" }, status || (run ? `${run.tool}: ${run.text}` : tab?.detail || "Thinking…")),
       h("small", {}, run?.at ? since(run.at) : ""));
   };
   working.addEventListener("click", () => {
@@ -840,15 +898,22 @@ function termView(name: string) {
         const p = await peekFor(tab);
         if (gen !== viewGen) return;
         if (p?.prompt) {
+          dialogUp = false;
           promptBox.replaceChildren(
             h("pre", { class: "ctx" }, p.prompt.context.join("\n")),
             choicesEl(tab, p.prompt, () => { promptBox.hidden = true; void refresh(); }));
           promptBox.hidden = false;
+        } else {
+          // Not a plain prompt (multiple choice, /usage…): shown from the screen.
+          dialogUp = true;
+          lastEdges = "";
+          void drawScreen(true);
         }
       }
     } else {
       promptBox.hidden = true;
       lastPeekKey = "";
+      if (dialogUp) { dialogUp = false; lastEdges = ""; }
     }
   };
   const refresh = () => Promise.all([drawScreen(), drawChat()]);

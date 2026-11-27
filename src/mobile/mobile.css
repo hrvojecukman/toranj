@@ -237,3 +237,17 @@ details.alt p { margin: 4px 0; }
 .tnote { margin: 0; font-size: 13px; }
 .working small { flex: none; font-variant-numeric: tabular-nums; margin-left: auto; }
 .chat .tcall + .tcall { margin-top: -8px; }
+/* Claude Code's own lines in the chat: status, what's under its input, dialogs. */
+.working span.busy { color: #e07a5f; }
+.cfoot { font: 11px/1.5 var(--mono); color: var(--mute); max-height: 8.5em; overflow: auto; padding: 0 4px; }
+.cf-line { white-space: pre; overflow: hidden; text-overflow: ellipsis; min-height: 1.5em; }
+.cf-line.split { display: flex; gap: 10px; }
+.cf-l { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: pre; }
+.cf-r { flex: none; white-space: pre; }
+.suggest { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; background: var(--card); border: 1px dashed var(--line); border-radius: 12px; padding: 7px 12px; cursor: pointer; min-width: 0; }
+.suggest small { color: var(--accent); font-weight: 600; flex: none; font-size: 11.5px; }
+.suggest span { color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
+.ask-screen { font: 11px/1.45 var(--mono); overflow-x: auto; margin-bottom: 8px; }
+.ask-screen .cf-line { overflow: visible; }
+.ask-keys { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ask-keys kbd { font: 600 11px var(--mono); color: var(--accent); }

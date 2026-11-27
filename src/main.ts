@@ -6,6 +6,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { screenEdges, screenDialog } from "./screen";
 import { renderMessage, copyButton, renderTool, runningTool, since, syncItems, type Item as ChatItem } from "./msgfmt";
 import { notifyTab, onNotificationClick, playSound, setBadge, SOUNDS, type Kind } from "./notify";
 
@@ -99,36 +100,6 @@ const settings = loadSettings();
 const lightQuery = matchMedia("(prefers-color-scheme: light)");
 const isLight = () => settings.theme === "light" || (settings.theme === "system" && lightQuery.matches);
 const termTheme = () => (isLight() ? LIGHT_TERM : DARK_TERM);
-
-/**
- * Buttons for a dialog read from the screen: the keys its hint line names
- * ("←/→ to switch · f to fix · d to show day · Esc to close"), else the
- * usual ↑ ↓ Enter Esc.
- */
-function dialogKeys(screen: string): [string, string, string][] {
-  const NAMED: Record<string, string> = {
-    "←": "\x1b[D", "→": "\x1b[C", "↑": "\x1b[A", "↓": "\x1b[B", esc: "\x1b", enter: "\r", "⏎": "\r", return: "\r",
-    tab: "\t", space: " ", "shift+tab": "\x1b[Z", "⇧tab": "\x1b[Z",
-  };
-  const out: [string, string, string][] = [];
-  const seen = new Set<string>();
-  const add = (k: string, title: string) => {
-    const key = k.trim();
-    const data = NAMED[key.toLowerCase()] ?? (/^[a-z0-9]$/i.test(key) ? key : /^ctrl\+([a-z])$/i.test(key) ? String.fromCharCode(key.slice(-1).toLowerCase().charCodeAt(0) - 96) : "");
-    if (!data || seen.has(data)) return;
-    seen.add(data);
-    out.push([key.length === 1 ? key : key[0].toUpperCase() + key.slice(1), data, title]);
-  };
-  // The hint line is the last one with "… to …" parts joined by "·".
-  const hint = screen.split("\n").reverse().find((l) => /\S+ to \S/.test(l) && l.includes("·"));
-  for (const part of hint?.split("·") ?? []) {
-    const m = /^\s*(\S+(?:\s?\/\s?\S+)*)\s+to\s+(.+?)\s*$/.exec(part);
-    if (!m) continue;
-    for (const k of m[1].split("/")) add(k, m[2]);
-  }
-  if (!out.length) for (const [k, t] of [["↑", "Up"], ["↓", "Down"], ["Enter", "Choose the highlighted option"], ["Esc", "Cancel"]]) add(k, t);
-  return out;
-}
 
 /** The invisible terminal under a chat view (see Pane.applyView). */
 const CHAT_TERM_FONT = 8;
@@ -405,62 +376,15 @@ class Pane {
     const rows: number[] = [];
     for (let i = 0; i < this.term.rows; i++) rows.push(buf.baseY + i);
     const text = rows.map((y) => buf.getLine(y)?.translateToString(true) ?? "");
-    const rule = (l: string) => { const t = l.trim(); return t.length >= 10 && [...t].filter((c) => c === "─" || c === "━").length >= t.length * 0.6; };
-    const none = { status: "", footer: [], input: "", inputRows: [], menuRows: [] };
-    // The rule under Claude's input box: the last one on screen.
-    let r2 = -1;
-    for (let i = text.length - 1; i >= 0; i--) if (rule(text[i])) { r2 = i; break; }
-    if (r2 < 0) return none;
-    // The input starts at the last prompt line above it (❯, or ! in shell mode).
-    const PROMPT = /^\s*[>❯!]\s?/;
-    let p = -1;
-    if (PROMPT.test(text[r2 + 1] ?? "")) {
-      // Only a top rule (shell mode draws none below): the box runs from it
-      // to the first blank line; what follows is the footer.
-      p = r2 + 1;
-      let end = p + 1;
-      while (end < text.length && text[end].trim() && !rule(text[end])) end++;
-      r2 = end;
-    } else {
-      for (let i = r2 - 1; i >= Math.max(0, r2 - 12); i--) {
-        if (rule(text[i])) break;
-        if (PROMPT.test(text[i])) { p = i; break; }
-      }
-    }
-    if (p < 0) return none;
-    // Claude's input box: what's in it (a suggested prompt shows there, dimmed).
-    const input = text.slice(p, r2).map((l, i) => (i === 0 ? l.replace(/^\s*[>❯›!]\s?/, "") : l.replace(/^\s{0,2}/, ""))).join("\n").trim();
-    // While Claude offers completions (slash commands, @ files) they list
-    // right above the box's top rule, the chosen one marked ❯ (indented).
-    let r1 = p - 1;
-    const menuRows: number[] = [];
-    let top = r1;
-    // (Without a top rule the box isn't Claude's usual one: no menu then.)
-    if (r1 >= 0 && rule(text[r1])) for (let j = r1 - 1; j >= Math.max(0, r1 - 16); j--) {
-      if (!text[j].trim() || rule(text[j])) break;
-      top = j;
-    }
-    if (top < r1 && text.slice(top, r1).some((l) => /^\s{1,6}❯\s/.test(l))) {
-      for (let i = top; i < r1; i++) menuRows.push(rows[i]);
-      r1 = top;
-    }
-    let status = "";
-    for (let i = r1 - 1; i >= Math.max(0, r1 - 3); i--) {
-      const l = text[i].trim();
-      if (!l) continue;
-      // A spinner or note line starts with a symbol: ✻ · * ✶ ✳ ✢ ⎿ (not ⏺, Claude's reply bullet).
-      if (/^[^\p{L}\p{N}\s⏺❯>]\s/u.test(l)) status = l.replace(/^\S+\s+/, "").replace(/\s{3,}.*$/, "");
-      break;
-    }
-    const footer: { text: string; el: HTMLElement }[] = [];
-    let last = text.length - 1;
-    while (last > r2 && !text[last].trim()) last--;
-    for (let i = r2 + 1; i <= last; i++) {
-      const t = text[i].replace(/\s+$/, "");
-      if (!t) continue;
-      footer.push({ text: t, el: this.lineEl(rows[i], true) });
-    }
-    return { status, footer, input, inputRows: rows.slice(p, r2), menuRows };
+    const e = screenEdges(text);
+    if (!e) return { status: "", footer: [], input: "", inputRows: [], menuRows: [] };
+    return {
+      status: e.status,
+      input: e.input,
+      footer: e.footLines.map((i) => ({ text: text[i].replace(/\s+$/, ""), el: this.lineEl(rows[i], true) })),
+      inputRows: rows.slice(...e.inputLines),
+      menuRows: rows.slice(...e.menuLines),
+    };
   }
 
   /**
@@ -534,23 +458,13 @@ class Pane {
    * multiple-choice dialog, a free-text question): its lines as on screen,
    * from the last rule above it, and its numbered options.
    */
-  screenDialog(): { key: string; lines: HTMLElement[]; options: { n: string; label: string }[] } {
+  screenDialog(): { key: string; lines: HTMLElement[]; options: { n: string; label: string }[]; keys: [string, string, string][] } {
     const buf = this.term.buffer.active;
     const rows: number[] = [];
     for (let i = 0; i < this.term.rows; i++) rows.push(buf.baseY + i);
     const text = rows.map((y) => buf.getLine(y)?.translateToString(true) ?? "");
-    let last = text.length - 1;
-    while (last > 0 && !text[last].trim()) last--;
-    const rule = (l: string) => { const t = l.trim(); return t.length >= 10 && [...t].filter((c) => c === "─" || c === "━").length >= t.length * 0.6; };
-    let start = Math.max(0, last - 24);
-    for (let i = last - 1; i >= Math.max(0, last - 40); i--) if (rule(text[i])) { start = i + 1; break; }
-    const options: { n: string; label: string }[] = [];
-    for (let i = start; i <= last; i++) {
-      const m = /^\s{0,3}(?:[❯›>]\s*)?(\d{1,2})\.\s+(.+?)\s*$/.exec(text[i]);
-      if (m && !options.some((o) => o.n === m[1])) options.push({ n: m[1], label: m[2] });
-    }
-    const slice = text.slice(start, last + 1);
-    return { key: slice.join("\n"), lines: rows.slice(start, last + 1).map((y) => this.lineEl(y)), options };
+    const d = screenDialog(text);
+    return { key: text.slice(...d.lines).join("\n"), lines: rows.slice(...d.lines).map((y) => this.lineEl(y)), options: d.options, keys: d.keys };
   }
 
   private buildChat(): HTMLElement {
@@ -798,7 +712,7 @@ class Pane {
       }
       const keys = document.createElement("div");
       keys.className = "ask-keys";
-      for (const [label, data, title] of dialogKeys(d.key)) {
+      for (const [label, data, title] of d.keys) {
         const b = document.createElement("button");
         b.type = "button";
         b.className = "btn";

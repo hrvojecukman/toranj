@@ -558,8 +558,12 @@ pub fn newest_buffer() -> Option<(u64, String)> {
 }
 
 /// Presses one of a few named keys the phone keyboard lacks.
+/// Also a single letter or digit, typed as is (keys a dialog names, e.g. /usage's d, w).
 pub fn send_key(name: &str, key: &str) -> Result<(), String> {
-    const KEYS: [&str; 7] = ["Escape", "Enter", "BTab", "Tab", "C-c", "Up", "Down"];
+    const KEYS: [&str; 11] = ["Escape", "Enter", "BTab", "Tab", "C-c", "Up", "Down", "Left", "Right", "BSpace", "Space"];
+    if key.len() == 1 && key.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        return run(&["send-keys", "-t", &exact_pane(name), "-l", key]).map(|_| ());
+    }
     if !KEYS.contains(&key) {
         return Err("key not allowed".into());
     }
