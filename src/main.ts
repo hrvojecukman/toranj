@@ -362,20 +362,42 @@ class Pane {
    * still running) terminal: the status line above the box and the lines
    * below it (mode, background tasks, agents), with their colors.
    */
-  screenEdges(): { status: string; footer: { text: string; el: HTMLElement }[]; input: string; inputRows: number[] } {
+  screenEdges(): { status: string; footer: { text: string; el: HTMLElement }[]; input: string; inputRows: number[]; menuRows: number[] } {
     const buf = this.term.buffer.active;
     const rows: number[] = [];
     for (let i = 0; i < this.term.rows; i++) rows.push(buf.baseY + i);
     const text = rows.map((y) => buf.getLine(y)?.translateToString(true) ?? "");
     const rule = (l: string) => { const t = l.trim(); return t.length >= 10 && [...t].filter((c) => c === "─" || c === "━").length >= t.length * 0.6; };
-    let r2 = -1, r1 = -1;
-    for (let i = text.length - 1; i >= 0; i--) {
-      if (!rule(text[i])) continue;
-      if (r2 < 0) r2 = i; else if (r2 - i <= 12) { r1 = i; break; } else break;
+    const none = { status: "", footer: [], input: "", inputRows: [], menuRows: [] };
+    // The rule under Claude's input box: the last one on screen.
+    let r2 = -1;
+    for (let i = text.length - 1; i >= 0; i--) if (rule(text[i])) { r2 = i; break; }
+    if (r2 < 0) return none;
+    // The input starts at the last prompt line above it.
+    let p = -1;
+    for (let i = r2 - 1; i >= Math.max(0, r2 - 12); i--) {
+      if (rule(text[i])) break;
+      if (/^\s*[>❯]\s?/.test(text[i])) { p = i; break; }
     }
-    if (r1 < 0) return { status: "", footer: [], input: "", inputRows: [] };
+    if (p < 0) return none;
     // Claude's input box: what's in it (a suggested prompt shows there, dimmed).
-    const input = text.slice(r1 + 1, r2).map((l, i) => (i === 0 ? l.replace(/^\s*[>❯›]\s?/, "") : l.replace(/^\s{0,2}/, ""))).join("\n").trim();
+    const input = text.slice(p, r2).map((l, i) => (i === 0 ? l.replace(/^\s*[>❯›]\s?/, "") : l.replace(/^\s{0,2}/, ""))).join("\n").trim();
+    // Normally a rule tops the box; while Claude offers completions (slash
+    // commands, @ files) they take that place, above the input.
+    let r1 = p - 1;
+    const menuRows: number[] = [];
+    if (r1 >= 0 && !rule(text[r1])) {
+      let j = p - 1;
+      for (; j >= Math.max(0, p - 16); j--) {
+        if (rule(text[j]) || /^\s*[⏺●]/.test(text[j])) break;
+        if (!text[j].trim() && j < p - 1 && !text[j + 1].trim()) break;
+      }
+      let first = j + 1, lastM = p - 1;
+      while (first <= lastM && !text[first].trim()) first++;
+      while (lastM >= first && !text[lastM].trim()) lastM--;
+      for (let i = first; i <= lastM; i++) menuRows.push(rows[i]);
+      r1 = j;
+    }
     let status = "";
     for (let i = r1 - 1; i >= Math.max(0, r1 - 3); i--) {
       const l = text[i].trim();
@@ -392,7 +414,7 @@ class Pane {
       if (!t) continue;
       footer.push({ text: t, el: this.lineEl(rows[i]) });
     }
-    return { status, footer, input, inputRows: rows.slice(r1 + 1, r2) };
+    return { status, footer, input, inputRows: rows.slice(p, r2), menuRows };
   }
 
   /** One terminal line as DOM, with its colors. */
@@ -451,7 +473,7 @@ class Pane {
   private buildChat(): HTMLElement {
     const box = document.createElement("div");
     box.className = "tp-chat";
-    box.innerHTML = `<div class="msgs-list"></div><div class="chat-dock"><div class="chat-ask" hidden></div><div class="chat-work" hidden></div><div class="chat-compose"><div class="chat-box"><div class="live-lines"></div><textarea class="chat-in" rows="1" aria-label="Claude's input: every key goes to Claude, as in the terminal" spellcheck="false" autocomplete="off"></textarea></div><button class="btn primary chat-send" type="button" title="Enter">Send</button></div><div class="chat-foot" hidden></div></div>`;
+    box.innerHTML = `<div class="msgs-list"></div><div class="chat-dock"><div class="chat-ask" hidden></div><div class="chat-work" hidden></div><div class="chat-menu" hidden></div><div class="chat-compose"><div class="chat-box"><div class="live-lines"></div><textarea class="chat-in" rows="1" aria-label="Claude's input: every key goes to Claude, as in the terminal" spellcheck="false" autocomplete="off"></textarea></div><button class="btn primary chat-send" type="button" title="Enter">Send</button></div><div class="chat-foot" hidden></div></div>`;
     const list = box.querySelector<HTMLElement>(".msgs-list")!;
     const ask = box.querySelector<HTMLElement>(".chat-ask")!;
     const work = box.querySelector<HTMLElement>(".chat-work")!;
@@ -477,6 +499,7 @@ class Pane {
     // commands, @ files, Tab, history, ⌃V images and suggestions all work
     // as in the terminal. The textarea only catches keys (and IME input).
     const liveLines = box.querySelector<HTMLElement>(".live-lines")!;
+    const menu = box.querySelector<HTMLElement>(".chat-menu")!;
     const key = (data: string) => { if (this.attachId !== null) invoke("write", { id: this.attachId, data }); };
     /** Keys since Enter: ← → with nothing typed open an agent. */
     let typed = 0;
@@ -533,7 +556,16 @@ class Pane {
     });
     sendBtn.addEventListener("click", () => { key("\r"); typed = 0; input.focus(); });
     /** Claude's input box, mirrored with its own cursor and colors. */
-    const drawLive = (rows: number[]) => {
+    const drawLive = (rows: number[], menuRows: number[]) => {
+      // Completions Claude offers for what's typed (slash commands, @ files):
+      // ↑ ↓ Tab Enter in the box choose, as in the terminal.
+      const buf0 = this.term.buffer.active;
+      const mk = menuRows.map((y) => buf0.getLine(y)?.translateToString(false) ?? "").join("\n");
+      if (menu.dataset.key !== mk) {
+        menu.dataset.key = mk;
+        menu.hidden = !menuRows.length;
+        menu.replaceChildren(...menuRows.map((y) => this.lineEl(y)));
+      }
       const buf = this.term.buffer.active;
       const k = rows.map((y) => buf.getLine(y)?.translateToString(false) ?? "").join("\n") + `|${buf.cursorX}|${buf.cursorY}`;
       if (liveLines.dataset.key === k) return;
@@ -604,8 +636,8 @@ class Pane {
       if (!live()) return;
       const t = this.tab;
       // While a question is up, the screen around it isn't the input box.
-      const { status, footer, inputRows } = t?.state === "waiting" ? { status: "", footer: [], inputRows: [] } : this.screenEdges();
-      drawLive(inputRows);
+      const { status, footer, inputRows, menuRows } = t?.state === "waiting" ? { status: "", footer: [], inputRows: [], menuRows: [] } : this.screenEdges();
+      drawLive(inputRows, menuRows);
       // The terminal's own status line ("✻ Catapulting… (4m 30s · 639 tokens)",
       // "Waiting for 1 background agent") says best what goes on; the
       // running tool call from the transcript says what exactly.

@@ -706,3 +706,5 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .live-lines:empty::before { content: "Claude's input — every key goes to Claude, as in the terminal"; color: var(--mute); font-family: var(--sans); font-size: 13px; }
 .chat-box:not(:focus-within) .live-lines span[style*="background:var(--fg)"] { background: transparent !important; color: inherit !important; outline: 1px solid var(--mute); }
 .chat-compose { align-items: stretch; }
+.chat-menu { font: 12px/1.45 var(--mono); background: var(--term); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; max-height: 260px; overflow: auto; }
+.chat-menu .cf-line { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
