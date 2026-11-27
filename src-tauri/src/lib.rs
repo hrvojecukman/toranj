@@ -441,6 +441,7 @@ pub fn run() {
             set_status_labels,
             icons::project_icon,
             history::recent_sessions,
+            phone::conversation,
             mobile::mobile_status,
             mobile::mobile_set_enabled,
             mobile::mobile_pair,

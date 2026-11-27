@@ -99,11 +99,15 @@ h3 { font-size: 13px; color: var(--mute); margin: 4px 0 8px; font-weight: 600; }
 .msg.assistant { border-bottom-left-radius: 4px; }
 .mtext { display: grid; gap: 8px; }
 .para { white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
-.code { position: relative; background: var(--term); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.code pre { margin: 0; padding: 10px 12px 34px; overflow-x: auto; font: 12.5px/1.4 var(--mono); white-space: pre; }
-.copy-code { position: absolute; right: 6px; bottom: 6px; }
-.copy-code, .copy-msg { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 8px; padding: 4px 9px; font-size: 12.5px; cursor: pointer; }
-.copy-code:active, .copy-msg:active { background: var(--accentbg); }
+.code, .quote-wrap { position: relative; }
+.code { background: var(--term); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.code pre { margin: 0; padding: 10px 12px 40px; overflow-x: auto; font: 12.5px/1.4 var(--mono); white-space: pre; }
+.quote-wrap { border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accentbg) 60%, transparent); border-radius: 4px 10px 10px 4px; }
+.quote { white-space: pre-wrap; word-break: break-word; padding: 10px 12px 42px; }
+.mtext code { font: 13px var(--mono); background: color-mix(in srgb, var(--fg) 10%, transparent); padding: 1px 4px; border-radius: 4px; }
+.copy-block { position: absolute; right: 6px; bottom: 6px; }
+.copy-block, .copy-msg { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 8px; padding: 4px 9px; font-size: 12.5px; cursor: pointer; }
+.copy-block:active, .copy-msg:active { background: var(--accentbg); }
 .mfoot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 6px; }
 .mfoot small { color: var(--mute); font-size: 11.5px; margin-right: auto; }
 .msg.user .copy-msg { background: transparent; border-color: transparent; color: var(--accent); padding-right: 0; }
@@ -149,7 +153,7 @@ h3 { font-size: 13px; color: var(--mute); margin: 4px 0 8px; font-weight: 600; }
 
 /* Icons and icon buttons. */
 .ic { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
-.copy-code .ic, .copy-msg .ic, .btn.small .ic { width: 15px; height: 15px; }
+.copy-block .ic, .copy-msg .ic, .btn.small .ic { width: 15px; height: 15px; }
 .ic-more { stroke-width: 3.2; }
 .icon-btn { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: none; color: var(--accent); border-radius: 10px; cursor: pointer; }
 .icon-btn:active { background: var(--accentbg); }
@@ -215,3 +219,4 @@ details.alt p { margin: 4px 0; }
 .scanner .frame { position: absolute; width: min(62vw, 300px); aspect-ratio: 1; border: 3px solid rgb(255 255 255 / .85); border-radius: 18px; pointer-events: none; top: 50%; left: 50%; transform: translate(-50%, -62%); }
 .scanner p { color: #fff; text-align: center; margin: 0; max-width: 320px; }
 .scanner .btn { background: rgb(255 255 255 / .15); color: #fff; border-color: transparent; }
+.mtext > * { min-width: 0; }

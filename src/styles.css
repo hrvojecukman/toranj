@@ -567,3 +567,38 @@ body.resizing-r, body.resizing-r * { cursor: row-resize !important; user-select:
 .sess.recent .rc-x { flex: none; border: 0; background: none; color: var(--mute); font-size: 15px; line-height: 1; padding: 0 2px; cursor: pointer; visibility: hidden; }
 .sess.recent:hover .rc-x, .sess.recent:focus-within .rc-x { visibility: visible; }
 .sess.recent .rc-x:hover { color: var(--fg); }
+
+/* Messages drawer: the conversation beside the terminal, easy to copy. */
+.tp-mid { flex: 1; min-height: 0; display: flex; }
+.tp-mid .tp-host { flex: 1; min-width: 0; }
+.tp-msgs-btn { margin-left: auto; flex: none; border: 1px solid var(--line); background: none; color: var(--mute); border-radius: 5px; padding: 1px 7px; font-size: 11.5px; cursor: pointer; }
+.tp-msgs-btn:hover, .tp-msgs-btn.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+.tp-msgs-btn kbd { font-size: 10.5px; margin-left: 3px; }
+.tp-msgs { flex: none; width: clamp(280px, 38%, 560px); display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--bg); min-height: 0; }
+.msgs-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 8px 6px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.msgs-x { border: 0; background: none; color: var(--mute); font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+.msgs-x:hover { background: var(--line); color: var(--fg); }
+.msgs-list { flex: 1; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 10px; user-select: text; -webkit-user-select: text; cursor: auto; }
+.msgs-note { color: var(--mute); font-size: 12.5px; margin: auto; text-align: center; padding: 20px; }
+.dmsg { border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px 10px; background: var(--term); font-size: 13px; line-height: 1.5; }
+.dmsg.user { background: var(--accentbg); border-color: transparent; }
+.dmsg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--mute); margin-bottom: 4px; }
+.dmsg .mtext { display: grid; gap: 8px; }
+.dmsg .para { position: relative; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; padding-right: 22px; border-radius: 4px; }
+.dmsg .para:hover { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+.dmsg code { font: 12px var(--mono); background: color-mix(in srgb, var(--fg) 9%, transparent); padding: 1px 4px; border-radius: 4px; }
+.dmsg .code, .dmsg .quote-wrap { position: relative; }
+.dmsg .code { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
+.dmsg .code pre { margin: 0; padding: 8px 10px 34px; overflow-x: auto; font: 12px/1.45 var(--mono); }
+.dmsg .quote-wrap { border-left: 3px solid var(--accent); background: color-mix(in srgb, var(--accentbg) 70%, transparent); border-radius: 3px 8px 8px 3px; }
+.dmsg .quote { white-space: pre-wrap; word-break: break-word; padding: 8px 10px 36px; }
+.ic { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; vertical-align: -2px; }
+.copy-block, .copy-msg { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; padding: 2px 8px; font-size: 11.5px; cursor: pointer; }
+.copy-block { position: absolute; right: 6px; bottom: 6px; }
+.copy-block:hover, .copy-msg:hover { border-color: var(--accent); color: var(--accent); }
+.copy-msg { border-color: transparent; color: var(--mute); padding: 1px 6px; }
+.copy-para { position: absolute; top: 0; right: 0; border: 0; background: none; color: var(--mute); padding: 2px; border-radius: 4px; cursor: pointer; opacity: 0; }
+.dmsg .para:hover .copy-para { opacity: 1; }
+.copy-para:hover { color: var(--accent); background: var(--line); }
+.dmsg, .dmsg .mtext > * { min-width: 0; }
+.dmsg .code { overflow: hidden; }

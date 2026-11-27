@@ -3,6 +3,7 @@
 // questions, shows a terminal and types into it, opens new terminals and
 // receives push notifications.
 import { renderAnsi } from "./ansi";
+import { renderMessage } from "../msgfmt";
 
 type State = "running" | "waiting" | "idle" | "done" | "error";
 interface Tab { name: string; project: string; cwd: string; agent: string; state: State; detail: string; title: string; since: number; background: boolean; session_id: string }
@@ -582,27 +583,10 @@ async function upload(file: File): Promise<{ path: string; thumb: string; name: 
 // ---------- chat (a Claude conversation as messages) ----------
 interface Msg { id: string; role: "user" | "assistant"; text: string; at: string }
 
-/** Message text with ``` fences as code blocks, each with its own Copy. */
-function msgBody(text: string): HTMLElement {
-  const body = h("div", { class: "mtext" });
-  const parts = text.split(/^```[^\n]*\n?/m);
-  parts.forEach((part, i) => {
-    if (i % 2 === 0) {
-      if (part.trim()) body.append(h("div", { class: "para" }, part.replace(/^\n+|\n+$/g, "")));
-    } else {
-      const code = part.replace(/\n$/, "");
-      body.append(h("div", { class: "code" },
-        h("pre", {}, code),
-        h("button", { class: "copy-code", type: "button", onclick: () => copyText(code, "Code copied") }, icon("copy"), " Copy")));
-    }
-  });
-  return body;
-}
-
 function msgEl(m: Msg): HTMLElement {
   const time = m.at ? new Date(m.at) : null;
   return h("div", { class: `msg ${m.role}`, "data-id": m.id },
-    msgBody(m.text),
+    renderMessage(m.text, copyText),
     h("div", { class: "mfoot" },
       time && !isNaN(+time) ? h("small", {}, time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })) : null,
       h("button", { class: "copy-msg", type: "button", onclick: () => copyText(m.text) }, icon("copy"), " Copy")));

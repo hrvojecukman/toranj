@@ -6,6 +6,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { renderMessage, copyButton } from "./msgfmt";
 import { notifyTab, onNotificationClick, playSound, setBadge, SOUNDS, type Kind } from "./notify";
 
 type State = "running" | "waiting" | "idle" | "done" | "error";
@@ -128,14 +129,14 @@ class Pane {
   private offMouseUp: () => void = () => {};
 
   /** A short "Copied" in the pane's corner after a selection reaches the clipboard. */
-  copied() {
+  copied(what = "Copied") {
     let tag = this.el.querySelector<HTMLElement>(".tp-copied");
     if (!tag) {
       tag = document.createElement("div");
       tag.className = "tp-copied";
-      tag.textContent = "Copied";
       this.el.append(tag);
     }
+    tag.textContent = what;
     tag.classList.remove("go");
     void tag.offsetWidth; // restart the animation
     tag.classList.add("go");
@@ -151,8 +152,13 @@ class Pane {
     this.host.className = "tp-host";
     const foot = document.createElement("div");
     foot.className = "tp-foot";
-    foot.innerHTML = `<i class="pi" aria-hidden="true"></i><b></b><span></span>`;
-    this.el.append(this.host, foot);
+    foot.innerHTML = `<i class="pi" aria-hidden="true"></i><b></b><span></span><button class="tp-msgs-btn" type="button" title="The conversation as messages, each easy to copy (⌘J)" hidden>Messages <kbd>⌘J</kbd></button>`;
+    foot.querySelector(".tp-msgs-btn")!.addEventListener("click", () => this.toggleMessages());
+    const mid = document.createElement("div");
+    mid.className = "tp-mid";
+    mid.append(this.host);
+    this.el.append(mid, foot);
+    if (msgsOpen.has(name)) queueMicrotask(() => this.toggleMessages(true));
     parent.append(this.el);
 
     const t = this.term;
@@ -217,7 +223,7 @@ class Pane {
         return false;
       }
       // App shortcuts never reach the terminal.
-      return !(e.metaKey && e.type === "keydown" && /^[tuwgk0-9=+,-]$/i.test(e.key));
+      return !(e.metaKey && e.type === "keydown" && /^[tuwgkj0-9=+,-]$/i.test(e.key));
     });
     t.onData((data) => { if (this.attachId !== null) invoke("write", { id: this.attachId, data }); });
     t.onResize(({ cols, rows }) => { if (this.attachId !== null) invoke("resize", { id: this.attachId, cols, rows }); });
@@ -250,7 +256,91 @@ class Pane {
     }
   }
 
+  // ---------- Messages drawer ----------
+  private drawer: HTMLElement | null = null;
+  private stopMsgs: () => void = () => {};
+
+  /** The Claude conversation beside the terminal, as messages with Copy. */
+  toggleMessages(on = !this.drawer) {
+    if (!on) {
+      this.stopMsgs();
+      this.drawer?.remove();
+      this.drawer = null;
+      msgsOpen.delete(this.name);
+    } else if (!this.drawer) {
+      this.drawer = this.buildDrawer();
+      this.el.querySelector(".tp-mid")!.append(this.drawer);
+      msgsOpen.add(this.name);
+    }
+    saveMsgsOpen();
+    this.el.querySelector(".tp-msgs-btn")?.classList.toggle("on", !!this.drawer);
+    requestAnimationFrame(() => this.refit());
+  }
+
+  private buildDrawer(): HTMLElement {
+    const box = document.createElement("aside");
+    box.className = "tp-msgs";
+    box.innerHTML = `<div class="msgs-head"><b>Messages</b><button class="msgs-x" type="button" title="Close (⌘J)" aria-label="Close messages">×</button></div><div class="msgs-list"></div>`;
+    box.querySelector(".msgs-x")!.addEventListener("click", () => this.toggleMessages(false));
+    const list = box.querySelector<HTMLElement>(".msgs-list")!;
+    const copy = (text: string, what: string) => {
+      navigator.clipboard.writeText(text).then(() => this.copied(what), () => this.copied("Couldn’t copy"));
+    };
+    let shown: { id: string; text: string }[] = [];
+    let stick = true;
+    list.addEventListener("scroll", () => { stick = list.scrollHeight - list.scrollTop - list.clientHeight < 60; });
+    const selecting = () => {
+      const sel = document.getSelection();
+      return !!sel && !sel.isCollapsed && sel.rangeCount > 0 && list.contains(sel.getRangeAt(0).commonAncestorContainer);
+    };
+    const note = (text: string) => { shown = []; list.replaceChildren(Object.assign(document.createElement("p"), { className: "msgs-note", textContent: text })); };
+    let busy = false;
+    const draw = async () => {
+      if (busy || document.hidden || selecting()) return;
+      const t = snap.tabs.find((x) => x.name === this.name);
+      if (!t || t.agent !== "claude" || !t.session_id) {
+        note("Messages are shown for Claude terminals once the conversation has started.");
+        return;
+      }
+      busy = true;
+      let msgs: { id: string; role: string; text: string; at: string }[];
+      try { msgs = await invoke("conversation", { sessionId: t.session_id, cwd: t.cwd }); }
+      catch { msgs = []; }
+      finally { busy = false; }
+      if (!this.drawer || selecting()) return;
+      if (!msgs.length) { if (!shown.length) note("No messages yet."); return; }
+      if (!shown.length) list.replaceChildren();
+      // Old messages fall off the front as new ones come; the rest is kept
+      // so a selection or the scroll position isn't disturbed.
+      const ids = new Set(msgs.map((m) => m.id));
+      while (shown.length && !ids.has(shown[0].id)) { shown.shift(); list.querySelector(".dmsg")?.remove(); }
+      let keep = 0;
+      while (keep < shown.length && keep < msgs.length && shown[keep].id === msgs[keep].id && shown[keep].text === msgs[keep].text) keep++;
+      if (keep === shown.length && keep === msgs.length) return;
+      [...list.querySelectorAll(".dmsg")].slice(keep).forEach((e) => e.remove());
+      for (const m of msgs.slice(keep)) {
+        const at = new Date(m.at);
+        const head = document.createElement("div");
+        head.className = "dmsg-head";
+        head.textContent = (m.role === "user" ? "You" : "Claude") + (isNaN(+at) ? "" : ` · ${at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`);
+        head.append(copyButton(() => m.text, copy, "Message", "copy-msg"));
+        const item = document.createElement("div");
+        item.className = `dmsg ${m.role}`;
+        item.append(head, renderMessage(m.text, copy, true));
+        list.append(item);
+      }
+      const grew = msgs.length > shown.length;
+      shown = msgs.map((m) => ({ id: m.id, text: m.text }));
+      if (stick || grew) list.scrollTop = list.scrollHeight;
+    };
+    void draw();
+    const timer = window.setInterval(() => void draw(), 2000);
+    this.stopMsgs = () => clearInterval(timer);
+    return box;
+  }
+
   dispose() {
+    this.stopMsgs();
     this.disposed = true;
     this.offMouseUp();
     if (this.attachId !== null) invoke("detach", { id: this.attachId });
@@ -262,6 +352,9 @@ class Pane {
 }
 
 const panes = new Map<string, Pane>();
+/** Terminals whose Messages drawer is open (kept across restarts). */
+const msgsOpen = new Set<string>((() => { try { return JSON.parse(localStorage.getItem("toranj.msgsOpen") ?? "[]") as string[]; } catch { return []; } })());
+function saveMsgsOpen() { try { localStorage.setItem("toranj.msgsOpen", JSON.stringify([...msgsOpen])); } catch { /* full */ } }
 let current: string | null = null;
 /** Tabs being closed: hidden right away, before the next snapshot drops them. */
 const closing = new Set<string>();
@@ -458,6 +551,7 @@ function paintPanes() {
     setText(p.el, ".tp-foot b", fullLabel(proj));
     setText(p.el, ".tp-foot span", t.title ? `· ${t.title}` : "");
     (p.el.querySelector(".tp-foot b") as HTMLElement).style.color = projectColor(proj);
+    (p.el.querySelector(".tp-msgs-btn") as HTMLElement).hidden = t.agent !== "claude";
   }
 }
 
@@ -3296,6 +3390,7 @@ window.addEventListener("keydown", (e) => {
   else if (e.key === "0") { e.preventDefault(); if (!document.querySelector("dialog[open]")) toggleOverview(); }
   else if (e.key === "u") { e.preventDefault(); nextWaiting(); }
   else if (e.key === "g") { e.preventDefault(); if (!ovShown()) toggleLayout(); }
+  else if (e.key === "j" && !e.shiftKey && !e.altKey) { e.preventDefault(); if (current && !ovShown()) panes.get(current)?.toggleMessages(); }
   // macOS: the app menu handles ⌘W (see toranj://close-tab); this covers
   // platforms without that menu.
   else if (e.key === "w") { e.preventDefault(); closeCurrent(); }

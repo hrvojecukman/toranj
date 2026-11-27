@@ -1,4 +1,4 @@
-//! What the phone needs beyond the terminal itself: a tab's Claude
+//! What the phone (and the desktop's Messages drawer) needs beyond the terminal itself: a tab's Claude
 //! conversation as plain messages (easy to read and copy on a small screen),
 //! the Mac's clipboard (so what an agent copied reaches the phone), and files
 //! the phone uploads to attach to a message.
@@ -75,6 +75,14 @@ pub fn messages(session_id: &str, cwd: &str) -> Result<Vec<Message>, String> {
     }
     cache.insert(path, (len, out.clone()));
     Ok(out)
+}
+
+/// The desktop's Messages drawer: the same messages as the phone's Chat.
+#[tauri::command]
+pub async fn conversation(session_id: String, cwd: String) -> Result<Vec<Message>, String> {
+    tauri::async_runtime::spawn_blocking(move || messages(&session_id, &cwd))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// The messages in the last `tail` bytes, and whether that was the whole file.
